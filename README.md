@@ -6,8 +6,6 @@ FastAPI wrapper for the [semantic-similarity-rating](https://github.com/pymc-lab
 
 This is a RESTful API that wraps the Semantic-Similarity Rating (SSR) methodology, providing HTTP endpoints for converting LLM text responses into probability distributions over Likert scales.
 
-Part of the [PipeGuru v3](https://github.com/MichielMAnalytics/pipeguru-ssr-api) architecture - an ad performance prediction platform for e-commerce brands.
-
 **Note**: This package depends on [semantic-similarity-rating](https://github.com/pymc-labs/semantic-similarity-rating) which is installed directly from GitHub (not yet on PyPI).
 
 ## Quick Start
@@ -106,12 +104,8 @@ Health check endpoint.
 
 ## Architecture
 
-This API is Layer 2 in the PipeGuru v3 stack:
-
 ```
 ┌─────────────────────────────────┐
-│  SaaS Dashboard (Proprietary)   │  ← Full platform
-├─────────────────────────────────┤
 │  pipeguru-ssr-api (This Repo)   │  ← FastAPI wrapper (open source)
 ├─────────────────────────────────┤
 │  semantic-similarity-rating     │  ← Core SSR methodology (MIT)
