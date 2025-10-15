@@ -8,6 +8,8 @@ This is a RESTful API that wraps the Semantic-Similarity Rating (SSR) methodolog
 
 Part of the [PipeGuru v3](https://github.com/MichielMAnalytics/pipeguru-ssr-api) architecture - an ad performance prediction platform for e-commerce brands.
 
+**Note**: This package depends on [semantic-similarity-rating](https://github.com/pymc-labs/semantic-similarity-rating) which is installed directly from GitHub (not yet on PyPI).
+
 ## Quick Start
 
 ### Using Docker
@@ -27,10 +29,24 @@ python3.12 -m venv .venv
 source .venv/bin/activate
 
 # Install dependencies
-pip install -e .
+pip install -r requirements.txt
 
 # Run server
 uvicorn src.main:app --reload
+
+# API will be available at http://localhost:8000
+# Interactive docs at http://localhost:8000/docs
+```
+
+### Installation from Source
+
+```bash
+# Clone repository
+git clone https://github.com/MichielMAnalytics/pipeguru-ssr-api.git
+cd pipeguru-ssr-api
+
+# Install
+pip install -r requirements.txt
 ```
 
 ## API Endpoints

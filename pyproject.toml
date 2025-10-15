@@ -21,7 +21,7 @@ dependencies = [
     "fastapi>=0.100.0",
     "uvicorn[standard]>=0.23.0",
     "pydantic>=2.0.0",
-    "semantic-similarity-rating>=1.0.0",
+    "semantic-similarity-rating @ git+https://github.com/pymc-labs/semantic-similarity-rating.git",
     "python-multipart>=0.0.6",
 ]
 
