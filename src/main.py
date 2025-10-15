@@ -3,7 +3,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from src.api.v1 import health, personas, rate
+from src.api.v1 import health, personas, predict, rate
 
 app = FastAPI(
     title="PipeGuru SSR API",
@@ -26,6 +26,7 @@ app.add_middleware(
 app.include_router(health.router, prefix="/v1", tags=["health"])
 app.include_router(rate.router, prefix="/v1", tags=["rating"])
 app.include_router(personas.router, prefix="/v1", tags=["personas"])
+app.include_router(predict.router, prefix="/v1", tags=["prediction"])
 
 
 @app.get("/")
