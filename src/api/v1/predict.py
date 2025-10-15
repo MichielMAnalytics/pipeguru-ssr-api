@@ -86,6 +86,7 @@ async def predict_ad(
             reference_sentences=request.reference_sentences,
             temperature=request.temperature,
             epsilon=request.epsilon,
+            use_multiple_reference_sets=request.use_multiple_reference_sets,
         )
 
         # Add processing time to metadata

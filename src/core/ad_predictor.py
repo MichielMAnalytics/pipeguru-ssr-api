@@ -9,6 +9,7 @@ from semantic_similarity_rating import ResponseRater
 
 from src.core.llm_client import LLMClient
 from src.core.persona_generator import PersonaGenerator
+from src.core.reference_statements import get_reference_sets
 
 
 class AdPredictor:
@@ -27,6 +28,7 @@ class AdPredictor:
         reference_sentences: List[str],
         temperature: float = 1.0,
         epsilon: float = 0.01,
+        use_multiple_reference_sets: bool = True,
     ) -> dict:
         """
         Predict ad performance using synthetic personas and SSR.
@@ -38,6 +40,7 @@ class AdPredictor:
             reference_sentences: Reference sentences for Likert scale
             temperature: SSR temperature parameter
             epsilon: SSR epsilon parameter
+            use_multiple_reference_sets: Use 6 reference sets and average (recommended)
 
         Returns:
             dict: Prediction results with PMF, conversion rate, individual results, cost
@@ -62,6 +65,7 @@ class AdPredictor:
             reference_sentences=reference_sentences,
             temperature=temperature,
             epsilon=epsilon,
+            use_multiple_reference_sets=use_multiple_reference_sets,
         )
 
         # Step 4: Calculate aggregate metrics
@@ -127,30 +131,63 @@ class AdPredictor:
         reference_sentences: List[str],
         temperature: float,
         epsilon: float,
+        use_multiple_reference_sets: bool = True,
     ) -> np.ndarray:
-        """Convert LLM responses to PMFs using SSR."""
-        # Create reference DataFrame
+        """
+        Convert LLM responses to PMFs using SSR.
+
+        Args:
+            llm_responses: LLM text responses to convert
+            reference_sentences: Reference sentences for Likert scale (used when single set)
+            temperature: Temperature parameter
+            epsilon: Epsilon parameter
+            use_multiple_reference_sets: Whether to use 6 sets and average (recommended)
+
+        Returns:
+            numpy array of PMFs
+        """
         num_points = len(reference_sentences)
-        df = po.DataFrame(
-            {
-                "id": ["purchase_intent"] * num_points,
-                "int_response": list(range(1, num_points + 1)),
-                "sentence": reference_sentences,
-            }
-        )
 
-        # Initialize ResponseRater
-        rater = ResponseRater(df, model_name="all-MiniLM-L6-v2")
+        # Determine which reference sets to use
+        if use_multiple_reference_sets:
+            # Use 6 reference sets from paper for better stability (KS sim ~0.88 vs ~0.72)
+            reference_sentences_list = get_reference_sets("purchase_intent")
+        else:
+            # Use provided reference sentences only
+            reference_sentences_list = [reference_sentences]
 
-        # Get PMFs
-        pmfs = rater.get_response_pmfs(
-            reference_set_id="purchase_intent",
-            llm_responses=llm_responses,
-            temperature=temperature,
-            epsilon=epsilon,
-        )
+        # Collect PMFs from all reference sets
+        all_pmfs_per_response = [[] for _ in llm_responses]
 
-        return pmfs
+        for ref_idx, ref_sentences in enumerate(reference_sentences_list):
+            # Create reference DataFrame
+            df = po.DataFrame(
+                {
+                    "id": [f"set_{ref_idx}"] * num_points,
+                    "int_response": list(range(1, num_points + 1)),
+                    "sentence": ref_sentences,
+                }
+            )
+
+            # Initialize ResponseRater
+            rater = ResponseRater(df, model_name="all-MiniLM-L6-v2")
+
+            # Get PMFs for this reference set
+            pmfs_for_set = rater.get_response_pmfs(
+                reference_set_id=f"set_{ref_idx}",
+                llm_responses=llm_responses,
+                temperature=temperature,
+                epsilon=epsilon,
+            )
+
+            # Collect PMFs for each response
+            for response_idx, pmf in enumerate(pmfs_for_set):
+                all_pmfs_per_response[response_idx].append(pmf)
+
+        # Average PMFs across all reference sets for each response
+        averaged_pmfs = np.array([np.mean(pmf_list, axis=0) for pmf_list in all_pmfs_per_response])
+
+        return averaged_pmfs
 
     def _build_reference_context(self, reference_sentences: List[str]) -> str:
         """Build reference context string for LLM prompt."""

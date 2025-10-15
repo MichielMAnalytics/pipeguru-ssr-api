@@ -41,6 +41,10 @@ class RateRequest(BaseModel):
         ge=0.0,
         le=1.0,
     )
+    use_multiple_reference_sets: bool = Field(
+        default=True,
+        description="Use 6 reference sets and average PMFs (recommended by paper for stability)",
+    )
 
     model_config = {
         "json_schema_extra": {
@@ -142,6 +146,10 @@ class PredictAdRequest(BaseModel):
         description="SSR epsilon parameter",
         ge=0.0,
         le=1.0,
+    )
+    use_multiple_reference_sets: bool = Field(
+        default=True,
+        description="Use 6 reference sets and average PMFs (recommended by paper for stability)",
     )
 
 
