@@ -10,20 +10,23 @@ from openai import AsyncOpenAI
 class LLMClient:
     """Client for interacting with OpenAI GPT-4 Vision API."""
 
-    def __init__(self, api_key: Optional[str] = None, model: str = "gpt-4o"):
+    def __init__(self, api_key: Optional[str] = None, model: Optional[str] = None):
         """
         Initialize the LLM client.
 
         Args:
             api_key: OpenAI API key. If not provided, reads from OPENAI_API_KEY env var.
-            model: Model to use. Default is gpt-4o (supports vision, cheaper than gpt-4-vision-preview).
+            model: Model to use. If not provided, reads from OPENAI_MODEL env var (default: gpt-4o-mini).
         """
         self.api_key = api_key or os.getenv("OPENAI_API_KEY")
         if not self.api_key:
             raise ValueError("OPENAI_API_KEY must be set in environment or passed to constructor")
 
-        self.model = model
+        # Read model from env var or use provided value or default
+        self.model = model or os.getenv("OPENAI_MODEL", "gpt-4o-mini")
         self.client = AsyncOpenAI(api_key=self.api_key)
+
+        print(f"[LLM Client] Initialized with model: {self.model}")
 
     async def evaluate_ad_with_persona(
         self,
@@ -89,9 +92,20 @@ what appeals to you or turns you off."""
                 temperature=0.7,
             )
 
-            return response.choices[0].message.content
+            content = response.choices[0].message.content
+
+            # DEBUG: Log if content is None/empty
+            if not content:
+                print(f"[DEBUG LLM] Empty response received!")
+                print(f"[DEBUG LLM] Response object: {response}")
+                print(f"[DEBUG LLM] Finish reason: {response.choices[0].finish_reason}")
+
+            return content
 
         except Exception as e:
+            print(f"[DEBUG LLM] Exception in evaluate_ad_with_persona: {str(e)}")
+            import traceback
+            traceback.print_exc()
             raise RuntimeError(f"Error calling OpenAI API: {str(e)}")
 
     async def test_connection(self) -> bool:

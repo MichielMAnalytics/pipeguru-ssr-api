@@ -59,6 +59,19 @@ class AdPredictor:
             reference_context=reference_context,
         )
 
+        # DEBUG: Print first 3 LLM responses to diagnose identical predictions
+        print(f"\n[DEBUG] First 3 LLM responses:")
+        for i, resp in enumerate(llm_responses[:3], 1):
+            print(f"  Response {i}: {resp[:200] if resp else 'NONE/EMPTY'}...")
+        print(f"[DEBUG] All responses identical: {len(set(llm_responses)) == 1}")
+        print(f"[DEBUG] Number of unique responses: {len(set(llm_responses))}")
+
+        # DEBUG: Check first 2 personas
+        print(f"\n[DEBUG] First 2 personas:")
+        for i, persona in enumerate(personas[:2], 1):
+            print(f"  Persona {i}: {persona[:200]}...")
+        print()
+
         # Step 3: Convert to PMFs using SSR
         pmfs = self._convert_to_pmfs(
             llm_responses=llm_responses,
@@ -112,16 +125,20 @@ class AdPredictor:
     async def _get_llm_evaluations(
         self, ad_image_base64: str, personas: List[str], reference_context: str
     ) -> List[str]:
-        """Get LLM evaluations for all personas in parallel."""
-        tasks = [
-            self.llm_client.evaluate_ad_with_persona(
-                ad_image_base64=ad_image_base64,
-                persona_description=persona,
-                reference_context=reference_context,
-            )
-            for persona in personas
-        ]
+        """Get LLM evaluations for all personas with rate limiting."""
+        # Limit concurrent requests to avoid rate limits (200K tokens/min)
+        # Each request ~1200 tokens, so 5 concurrent = ~6K tokens, safe margin
+        semaphore = asyncio.Semaphore(5)
 
+        async def eval_with_limit(persona):
+            async with semaphore:
+                return await self.llm_client.evaluate_ad_with_persona(
+                    ad_image_base64=ad_image_base64,
+                    persona_description=persona,
+                    reference_context=reference_context,
+                )
+
+        tasks = [eval_with_limit(persona) for persona in personas]
         responses = await asyncio.gather(*tasks)
         return responses
 

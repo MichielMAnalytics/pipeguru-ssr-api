@@ -53,5 +53,13 @@ htmlcov/
 # Logs
 *.log
 
+# Data
+data/
 
 *.md
+
+
+2510.08338v2.pdf
+
+
+results/

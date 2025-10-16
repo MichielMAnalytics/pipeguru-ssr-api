@@ -1,12 +1,16 @@
 """Ad prediction endpoint."""
 
+import logging
 import time
+import traceback
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
 
 from src.core.ad_predictor import AdPredictor
 from src.models.schemas import PredictAdRequest, PredictAdResponse
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -96,8 +100,12 @@ async def predict_ad(
         return PredictAdResponse(**result)
 
     except ValueError as e:
+        logger.error(f"ValueError in predict_ad: {str(e)}")
+        logger.error(traceback.format_exc())
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
+        logger.error(f"Unexpected error in predict_ad: {str(e)}")
+        logger.error(traceback.format_exc())
         raise HTTPException(
             status_code=500, detail=f"Error predicting ad performance: {str(e)}"
         )
