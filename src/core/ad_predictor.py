@@ -7,6 +7,7 @@ import numpy as np
 import polars as po
 from semantic_similarity_rating import ResponseRater
 
+from src.core.embeddings import GeminiEmbeddings
 from src.core.llm_client import LLMClient
 from src.core.persona_generator import PersonaGenerator
 from src.core.reference_statements import get_reference_sets
@@ -16,8 +17,9 @@ class AdPredictor:
     """Orchestrates ad performance prediction using personas, LLM, and SSR."""
 
     def __init__(self):
-        """Initialize the predictor with LLM client and persona generator."""
+        """Initialize the predictor with LLM client, embeddings, and persona generator."""
         self.llm_client = LLMClient()
+        self.embeddings = GeminiEmbeddings()
         self.persona_generator = PersonaGenerator()
 
     async def predict_ad_performance(
@@ -151,7 +153,7 @@ class AdPredictor:
         use_multiple_reference_sets: bool = True,
     ) -> np.ndarray:
         """
-        Convert LLM responses to PMFs using SSR.
+        Convert LLM responses to PMFs using SSR with Gemini embeddings.
 
         Args:
             llm_responses: LLM text responses to convert
@@ -173,26 +175,36 @@ class AdPredictor:
             # Use provided reference sentences only
             reference_sentences_list = [reference_sentences]
 
+        # Generate embeddings for LLM responses (once, reused for all reference sets)
+        print(f"[AdPredictor] Generating embeddings for {len(llm_responses)} LLM responses...")
+        llm_response_embeddings = self.embeddings.encode(llm_responses)
+
         # Collect PMFs from all reference sets
         all_pmfs_per_response = [[] for _ in llm_responses]
 
         for ref_idx, ref_sentences in enumerate(reference_sentences_list):
-            # Create reference DataFrame
+            print(f"[AdPredictor] Processing reference set {ref_idx + 1}/{len(reference_sentences_list)}...")
+
+            # Generate embeddings for reference sentences
+            ref_embeddings = self.embeddings.encode(ref_sentences)
+
+            # Create reference DataFrame with embeddings
             df = po.DataFrame(
                 {
                     "id": [f"set_{ref_idx}"] * num_points,
                     "int_response": list(range(1, num_points + 1)),
                     "sentence": ref_sentences,
+                    "embedding": ref_embeddings.tolist(),  # Add embeddings column
                 }
             )
 
-            # Initialize ResponseRater
-            rater = ResponseRater(df, model_name="all-MiniLM-L6-v2")
+            # Initialize ResponseRater in embedding mode (no HuggingFace model needed!)
+            rater = ResponseRater(df, embeddings_column="embedding")
 
-            # Get PMFs for this reference set
+            # Get PMFs for this reference set (passing embeddings, not text)
             pmfs_for_set = rater.get_response_pmfs(
                 reference_set_id=f"set_{ref_idx}",
-                llm_responses=llm_responses,
+                llm_responses=llm_response_embeddings,  # Pass embeddings instead of text
                 temperature=temperature,
                 epsilon=epsilon,
             )
@@ -247,8 +259,8 @@ class AdPredictor:
 
     def _calculate_cost(self, num_personas: int) -> dict:
         """Calculate estimated cost for the prediction."""
-        # GPT-4o vision costs approximately $0.01-0.02 per call
-        cost_per_call = 0.015  # Average estimate
+        # Gemini 2.5 Flash costs approximately $0.001-0.002 per call
+        cost_per_call = 0.0015  # Average estimate
         total_cost = num_personas * cost_per_call
 
         return {

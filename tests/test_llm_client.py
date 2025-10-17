@@ -9,21 +9,21 @@ from src.core.llm_client import LLMClient
 
 @pytest.mark.asyncio
 @pytest.mark.skipif(
-    not os.getenv("OPENAI_API_KEY"), reason="OpenAI API key not set"
+    not os.getenv("GEMINI_API_KEY"), reason="Gemini API key not set"
 )
 async def test_llm_client_initialization():
     """Test LLM client can be initialized."""
     client = LLMClient()
     assert client.api_key is not None
-    assert client.model == "gpt-4o"
+    assert client.model == "gemini-2.5-flash"
 
 
 @pytest.mark.asyncio
 @pytest.mark.skipif(
-    not os.getenv("OPENAI_API_KEY"), reason="OpenAI API key not set"
+    not os.getenv("GEMINI_API_KEY"), reason="Gemini API key not set"
 )
 async def test_llm_connection():
-    """Test connection to OpenAI API."""
+    """Test connection to Gemini API."""
     client = LLMClient()
     result = await client.test_connection()
     assert result is True
@@ -32,20 +32,20 @@ async def test_llm_connection():
 def test_llm_client_requires_api_key():
     """Test that LLMClient raises error without API key."""
     # Temporarily remove API key from environment
-    original_key = os.environ.pop("OPENAI_API_KEY", None)
+    original_key = os.environ.pop("GEMINI_API_KEY", None)
 
     try:
-        with pytest.raises(ValueError, match="OPENAI_API_KEY must be set"):
+        with pytest.raises(ValueError, match="GEMINI_API_KEY must be set"):
             LLMClient()
     finally:
         # Restore original key if it existed
         if original_key:
-            os.environ["OPENAI_API_KEY"] = original_key
+            os.environ["GEMINI_API_KEY"] = original_key
 
 
 @pytest.mark.asyncio
 @pytest.mark.skipif(
-    not os.getenv("OPENAI_API_KEY"), reason="OpenAI API key not set"
+    not os.getenv("GEMINI_API_KEY"), reason="Gemini API key not set"
 )
 async def test_evaluate_ad_with_persona():
     """Test evaluating an ad with a persona (using a simple test image)."""

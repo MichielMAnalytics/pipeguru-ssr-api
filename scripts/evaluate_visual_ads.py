@@ -9,7 +9,7 @@ This script:
 Phase 2 Validation Flow (Per Ad):
 1. Load Ad (image + actual metrics from CSV)
 2. Generate Generic Personas (20 per ad, segment="general_consumer")
-3. Evaluate with Vision LLM (20 evaluations via GPT-4 Vision)
+3. Evaluate with Vision LLM (20 evaluations via Gemini Vision)
 4. SSR Processing (20 PMFs)
 5. Aggregate (average PMFs → predicted conversion rate)
 6. Compare (save for later accuracy calculation)
@@ -36,10 +36,10 @@ RESULTS_DIR = Path(__file__).parent.parent / "results"
 RESULTS_PATH = RESULTS_DIR / "phase2_predictions.json"
 
 # Prediction parameters
-NUM_PERSONAS = 20  # Number of personas per ad (cost: ~$0.40 per ad)
+NUM_PERSONAS = 5  # Number of personas per ad (cost: ~$0.015 per ad with Gemini)
 SEGMENT = "general_consumer"  # Using generic personas
-SAMPLE_SIZE = 10  # Total number of ads to test
-STRATIFIED = True  # Stratify by conversion rate (5 high, 5 low)
+SAMPLE_SIZE = 20  # Total number of ads to test (only visual ads: 11.png - 16.png)
+STRATIFIED = True  # Stratify by conversion rate (half low, half high)
 
 
 def load_image_as_base64(image_path: Path) -> str:
@@ -49,8 +49,22 @@ def load_image_as_base64(image_path: Path) -> str:
 
 
 def get_all_image_paths() -> List[Path]:
-    """Get all image paths from the dataset."""
-    return sorted(IMAGES_DIR.rglob("*.png"))
+    """
+    Get all image paths from the dataset, filtering for visual ads only.
+
+    Only includes images named 11.png through 16.png, which are actual visual ads
+    (not Google search results).
+    """
+    all_images = sorted(IMAGES_DIR.rglob("*.png"))
+
+    # Filter for visual ads only (11.png - 16.png)
+    visual_ads = [
+        img for img in all_images
+        if img.name in ['11.png', '12.png', '13.png', '14.png', '15.png', '16.png']
+    ]
+
+    print(f"Filtered {len(visual_ads)} visual ads from {len(all_images)} total images")
+    return visual_ads
 
 
 def load_dataset() -> pd.DataFrame:
@@ -73,7 +87,7 @@ def select_test_ads(
     Otherwise, selects random sample.
 
     Args:
-        all_images: List of all image paths
+        all_images: List of all image paths (filtered visual ads only)
         df: DataFrame with performance metrics
         sample_size: Number of ads to select
         stratified: Whether to stratify by conversion rate
@@ -81,40 +95,57 @@ def select_test_ads(
     Returns:
         List of dicts with image_path, image_index, and actual_metrics
     """
-    # Since we have 301 images and 1000 CSV rows, we'll map images to the first 301 rows
-    # This is a simplification - in production we'd need proper mapping
-    image_count = min(len(all_images), len(df))
+    # Map each filtered image to its corresponding CSV row
+    # Images are in folders 1-19, with 15 images each (1.png - 15.png)
+    # CSV rows are sequential, so folder X, image Y maps to CSV row: (X-1)*15 + (Y-1)
+    image_to_csv_mapping = []
+    for img_path in all_images:
+        folder_num = int(img_path.parent.name)
+        image_num = int(img_path.stem)  # stem gives filename without extension
+        csv_index = (folder_num - 1) * 15 + (image_num - 1)
+
+        if csv_index < len(df):
+            image_to_csv_mapping.append({
+                'image_idx': len(image_to_csv_mapping),
+                'csv_idx': csv_index,
+                'image_path': img_path,
+                'conversion_rate': df.iloc[csv_index]['conversion_rate']
+            })
+
+    if len(image_to_csv_mapping) == 0:
+        raise ValueError("No valid images found that map to CSV data")
+
+    print(f"Mapped {len(image_to_csv_mapping)} images to CSV rows")
 
     if stratified and sample_size >= 2:
         # Sort by conversion rate
-        df_subset = df.iloc[:image_count].copy()
-        df_subset['image_idx'] = range(image_count)
-        df_sorted = df_subset.sort_values('conversion_rate')
+        sorted_mappings = sorted(image_to_csv_mapping, key=lambda x: x['conversion_rate'])
 
         # Select bottom 50% (low conversion) and top 50% (high conversion)
         n_low = sample_size // 2
         n_high = sample_size - n_low
 
-        low_indices = df_sorted.head(n_low)['image_idx'].tolist()
-        high_indices = df_sorted.tail(n_high)['image_idx'].tolist()
-        selected_indices = low_indices + high_indices
+        selected_mappings = sorted_mappings[:n_low] + sorted_mappings[-n_high:]
 
         print(f"Selected {n_low} low-conversion ads and {n_high} high-conversion ads")
+        print(f"  Low conversion range: {sorted_mappings[0]['conversion_rate']:.4f} - {sorted_mappings[n_low-1]['conversion_rate']:.4f}")
+        print(f"  High conversion range: {sorted_mappings[-n_high]['conversion_rate']:.4f} - {sorted_mappings[-1]['conversion_rate']:.4f}")
     else:
         # Random sample
         import random
-        selected_indices = random.sample(range(min(len(all_images), image_count)), sample_size)
-        print(f"Selected {sample_size} random ads")
+        selected_mappings = random.sample(image_to_csv_mapping, min(sample_size, len(image_to_csv_mapping)))
+        print(f"Selected {len(selected_mappings)} random ads")
 
     # Build test set
     test_ads = []
-    for idx in selected_indices:
-        image_path = all_images[idx]
-        actual_metrics = df.iloc[idx].to_dict()
+    for mapping in selected_mappings:
+        csv_idx = mapping['csv_idx']
+        actual_metrics = df.iloc[csv_idx].to_dict()
 
         test_ads.append({
-            "image_path": str(image_path),
-            "image_index": idx,
+            "image_path": str(mapping['image_path']),
+            "image_index": mapping['image_idx'],
+            "csv_index": csv_idx,
             "actual_conversion_rate": actual_metrics["conversion_rate"],
             "actual_ctr": actual_metrics["CTR"],
             "actual_engagement_ratio": actual_metrics["engagement_ratio"],

@@ -55,8 +55,8 @@ async def test_e2e():
         return
 
     # Step 3: Call LLM with persona and image
-    print("Step 3: Calling GPT-4o Vision...")
-    print("(This will cost ~$0.01-0.02)")
+    print("Step 3: Calling Gemini Vision...")
+    print("(This will cost ~$0.001-0.002)")
 
     try:
         client = LLMClient()
