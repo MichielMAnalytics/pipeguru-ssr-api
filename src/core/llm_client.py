@@ -126,6 +126,36 @@ what appeals to you or turns you off."""
             traceback.print_exc()
             raise RuntimeError(f"Error calling Gemini API: {str(e)}")
 
+    async def generate_text(self, prompt: str) -> str:
+        """
+        Generate text using Gemini (for persona generation, etc.).
+
+        Args:
+            prompt: Text prompt for generation
+
+        Returns:
+            str: Generated text
+
+        Raises:
+            RuntimeError: If generation fails
+        """
+        try:
+            # Use the same async pattern as evaluate_ad_with_persona
+            response = await self.client.aio.models.generate_content(
+                model=self.model,
+                contents=prompt,
+            )
+
+            content = response.text
+
+            if not content:
+                raise RuntimeError("Empty response from Gemini API")
+
+            return content
+
+        except Exception as e:
+            raise RuntimeError(f"Error generating text with Gemini: {str(e)}")
+
     async def test_connection(self) -> bool:
         """
         Test the connection to Gemini API.

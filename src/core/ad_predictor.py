@@ -22,59 +22,45 @@ class AdPredictor:
         self.embeddings = GeminiEmbeddings()
         self.persona_generator = PersonaGenerator()
 
-    async def predict_ad_performance(
+    async def analyze_creative(
         self,
-        ad_image_base64: str,
-        num_personas: int,
-        segment: str,
+        creative_base64: str,
+        personas: List[str],
         reference_sentences: List[str],
         temperature: float = 1.0,
         epsilon: float = 0.01,
         use_multiple_reference_sets: bool = True,
     ) -> dict:
         """
-        Predict ad performance using synthetic personas and SSR.
+        Analyze creative with specific personas.
+
+        Returns qualitative + quantitative feedback per persona, plus aggregates.
 
         Args:
-            ad_image_base64: Base64-encoded ad image
-            num_personas: Number of personas to generate
-            segment: Persona segment (general_consumer, millennial_women, gen_z)
+            creative_base64: Base64-encoded ad image
+            personas: List of persona descriptions
             reference_sentences: Reference sentences for Likert scale
             temperature: SSR temperature parameter
             epsilon: SSR epsilon parameter
             use_multiple_reference_sets: Use 6 reference sets and average (recommended)
 
         Returns:
-            dict: Prediction results with PMF, conversion rate, individual results, cost
+            dict: {
+                "persona_results": [PersonaAnalysisResult],
+                "aggregate": AggregateResults,
+                "metadata": {...}
+            }
         """
-        # Step 1: Generate personas
-        personas = self.persona_generator.generate_personas(
-            num_personas=num_personas, segment=segment
-        )
-
-        # Step 2: Get LLM evaluations (in parallel for speed)
+        # Step 1: Get LLM evaluations (in parallel for speed)
         reference_context = self._build_reference_context(reference_sentences)
 
         llm_responses = await self._get_llm_evaluations(
-            ad_image_base64=ad_image_base64,
+            ad_image_base64=creative_base64,
             personas=personas,
             reference_context=reference_context,
         )
 
-        # DEBUG: Print first 3 LLM responses to diagnose identical predictions
-        print(f"\n[DEBUG] First 3 LLM responses:")
-        for i, resp in enumerate(llm_responses[:3], 1):
-            print(f"  Response {i}: {resp[:200] if resp else 'NONE/EMPTY'}...")
-        print(f"[DEBUG] All responses identical: {len(set(llm_responses)) == 1}")
-        print(f"[DEBUG] Number of unique responses: {len(set(llm_responses))}")
-
-        # DEBUG: Check first 2 personas
-        print(f"\n[DEBUG] First 2 personas:")
-        for i, persona in enumerate(personas[:2], 1):
-            print(f"  Persona {i}: {persona[:200]}...")
-        print()
-
-        # Step 3: Convert to PMFs using SSR
+        # Step 2: Convert to PMFs using SSR
         pmfs = self._convert_to_pmfs(
             llm_responses=llm_responses,
             reference_sentences=reference_sentences,
@@ -83,45 +69,49 @@ class AdPredictor:
             use_multiple_reference_sets=use_multiple_reference_sets,
         )
 
-        # Step 4: Calculate aggregate metrics
+        # Step 3: Build individual results with FULL qualitative feedback
+        persona_results = []
+        for i, (persona, llm_resp, pmf) in enumerate(zip(personas, llm_responses, pmfs), 1):
+            most_likely = int(np.argmax(pmf) + 1)  # 1-indexed
+            expected_val = sum((j + 1) * p for j, p in enumerate(pmf))
+            confidence = float(np.max(pmf))
+
+            persona_results.append({
+                "persona_id": i,
+                "persona_description": persona,  # FULL persona, not truncated
+                "qualitative_feedback": llm_resp,  # FULL response, not truncated!
+                "quantitative_score": most_likely,
+                "expected_value": round(expected_val, 2),
+                "pmf": [round(float(p), 4) for p in pmf],
+                "confidence": round(confidence, 4),
+            })
+
+        # Step 4: Calculate aggregates
         aggregate_pmf = np.mean(pmfs, axis=0)
-        predicted_conversion_rate = self._calculate_conversion_rate(aggregate_pmf)
-        confidence = self._calculate_confidence(pmfs)
+        avg_score = float(np.mean([r["expected_value"] for r in persona_results]))
+        conversion_rate = self._calculate_conversion_rate(aggregate_pmf)
+        aggregate_confidence = self._calculate_confidence(pmfs)
 
-        # Step 5: Build individual results
-        individual_results = []
-        for i, (persona, llm_resp, pmf) in enumerate(
-            zip(personas, llm_responses, pmfs), 1
-        ):
-            individual_results.append(
-                {
-                    "persona_id": i,
-                    "persona_description": persona[:100] + "...",  # Truncate for response size
-                    "llm_response": llm_resp[:200] + "...",  # Truncate
-                    "pmf": [round(float(p), 4) for p in pmf],
-                    "expected_value": round(
-                        float(sum((i + 1) * p for i, p in enumerate(pmf))), 2
-                    ),
-                }
-            )
+        aggregate = {
+            "average_score": round(avg_score, 2),
+            "predicted_conversion_rate": round(conversion_rate, 4),
+            "pmf_aggregate": [round(float(p), 4) for p in aggregate_pmf],
+            "confidence": round(aggregate_confidence, 4),
+        }
 
-        # Step 6: Calculate cost
-        cost = self._calculate_cost(num_personas)
+        # Step 5: Metadata
+        cost = self._calculate_cost(len(personas))
+        metadata = {
+            "num_personas": len(personas),
+            "cost_usd": cost["estimated_cost_usd"],
+            "llm_calls": cost["llm_calls"],
+            "llm_model": "gemini-2.5-flash",
+        }
 
         return {
-            "predicted_conversion_rate": round(predicted_conversion_rate, 4),
-            "confidence": round(confidence, 4),
-            "pmf_aggregate": [round(float(p), 4) for p in aggregate_pmf],
-            "expected_value": round(
-                float(sum((i + 1) * p for i, p in enumerate(aggregate_pmf))), 2
-            ),
-            "persona_results": individual_results,
-            "cost": cost,
-            "metadata": {
-                "num_personas": num_personas,
-                "segment": segment,
-                "num_reference_sentences": len(reference_sentences),
-            },
+            "persona_results": persona_results,
+            "aggregate": aggregate,
+            "metadata": metadata,
         }
 
     async def _get_llm_evaluations(

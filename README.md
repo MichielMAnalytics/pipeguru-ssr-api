@@ -1,12 +1,14 @@
 # PipeGuru SSR API
 
-FastAPI wrapper for the [semantic-similarity-rating](https://github.com/pymc-labs/semantic-similarity-rating) package.
+FastAPI service for analyzing ad creatives using synthetic personas and Semantic Similarity Rating (SSR).
 
 ## What is this?
 
-This is a RESTful API that wraps the Semantic-Similarity Rating (SSR) methodology, providing HTTP endpoints for converting LLM text responses into probability distributions over Likert scales.
+This API analyzes ad creatives (images) by evaluating them through the perspective of specific personas, returning both:
+- **Qualitative feedback**: "I would buy this because..." (LLM reasoning)
+- **Quantitative scores**: 1-5 purchase likelihood ratings with confidence
 
-**Note**: This package depends on [semantic-similarity-rating](https://github.com/pymc-labs/semantic-similarity-rating) which is installed directly from GitHub (not yet on PyPI).
+Built on the [semantic-similarity-rating](https://github.com/pymc-labs/semantic-similarity-rating) methodology for converting LLM text responses into probability distributions.
 
 ## Quick Start
 
@@ -49,86 +51,165 @@ pip install -r requirements.txt
 
 ## API Endpoints
 
-### Core SSR Endpoints
+### Main Endpoint
 
-#### `POST /v1/rate`
+#### `POST /v1/analyze-creative`
 
-Convert text responses to probability distributions using SSR.
+Analyze an ad creative with specific personas. Returns qualitative feedback and quantitative scores per persona, plus aggregate metrics.
 
-**Example:**
-```bash
-curl -X POST http://localhost:8000/v1/rate \
-  -H "Content-Type: application/json" \
-  -d '{
-    "responses": ["I really like this product"],
-    "reference_sentences": [
-      "I definitely would not purchase",
-      "I probably would not purchase",
-      "I might or might not purchase",
-      "I probably would purchase",
-      "I definitely would purchase"
-    ]
-  }'
+**Request:**
+```python
+{
+  "creative_base64": "...",  # Base64-encoded image
+  "personas": [              # Your persona descriptions
+    "You are Sarah, a 35-year-old marketing manager earning $85k/year...",
+    "You are Mike, a 28-year-old software engineer earning $110k/year..."
+  ]
+}
 ```
 
-**Returns:** PMF distribution, expected value, most likely rating, confidence
+**Response:**
+```python
+{
+  "persona_results": [
+    {
+      "persona_id": 1,
+      "persona_description": "You are Sarah...",
+      "qualitative_feedback": "I would buy this because it speaks to my need for...",
+      "quantitative_score": 4,
+      "expected_value": 3.8,
+      "pmf": [0.05, 0.10, 0.15, 0.40, 0.30],
+      "confidence": 0.85
+    }
+  ],
+  "aggregate": {
+    "average_score": 3.8,
+    "predicted_conversion_rate": 0.62,
+    "pmf_aggregate": [0.08, 0.12, 0.18, 0.35, 0.27],
+    "confidence": 0.82
+  },
+  "metadata": {
+    "num_personas": 10,
+    "cost_usd": 0.15,
+    "processing_time_seconds": 23.5
+  }
+}
+```
+
+**Cost:** ~$0.0015 per persona (~$0.015 for 10 personas)
+**Time:** ~10-30 seconds depending on number of personas
+
+### Helper Endpoints
 
 #### `GET /v1/health`
 
-Health check endpoint.
+Health check endpoint - returns API status and enabled features.
 
-### Ad Prediction Endpoints (NEW!)
+#### `POST /v1/rate`
 
-#### `POST /v1/predict-ad`
+Core SSR rating endpoint for advanced use. Convert text responses to probability distributions.
 
-Predict ad performance using synthetic personas and GPT-4 Vision.
+## Example Usage
 
-**What it does:**
-1. Generates N synthetic customer personas
-2. Shows ad to each persona using GPT-4 Vision
-3. Converts responses to probability distributions via SSR
-4. Aggregates into final prediction
+### Python
 
-**Example:**
+```python
+import requests
+import base64
+
+# Load creative image
+with open("ad.jpg", "rb") as f:
+    creative_b64 = base64.b64encode(f.read()).decode()
+
+# Define personas (your target audience)
+personas = [
+    """You are Sarah, a 35-year-old marketing manager earning $85k/year in Seattle.
+    You value quality and sustainability, shop online weekly, and have moderate price sensitivity.""",
+
+    """You are Mike, a 28-year-old software engineer earning $110k/year in San Francisco.
+    You prioritize convenience, are tech-savvy, and have low price sensitivity.""",
+
+    """You are Elena, a 42-year-old small business owner earning $65k/year in Austin.
+    You're budget-conscious, shop monthly, and carefully research before purchasing."""
+]
+
+# Analyze creative
+response = requests.post(
+    "http://localhost:8000/v1/analyze-creative",
+    json={
+        "creative_base64": creative_b64,
+        "personas": personas
+    }
+)
+
+result = response.json()
+
+# Per-persona results
+print("Individual Persona Feedback:\n")
+for persona_result in result["persona_results"]:
+    print(f"Persona {persona_result['persona_id']}:")
+    print(f"  Qualitative: {persona_result['qualitative_feedback'][:100]}...")
+    print(f"  Score: {persona_result['quantitative_score']}/5")
+    print(f"  Confidence: {persona_result['confidence']:.1%}\n")
+
+# Aggregate metrics
+print("\nAggregate Results:")
+print(f"  Average Score: {result['aggregate']['average_score']}/5")
+print(f"  Predicted Conversion Rate: {result['aggregate']['predicted_conversion_rate']:.1%}")
+print(f"  Confidence: {result['aggregate']['confidence']:.1%}")
+print(f"\nCost: ${result['metadata']['cost_usd']}")
+print(f"Processing Time: {result['metadata']['processing_time_seconds']}s")
+```
+
+### cURL
+
 ```bash
 # Encode image
 IMAGE_B64=$(base64 -i ad.jpg)
 
-curl -X POST http://localhost:8000/v1/predict-ad \
+# Analyze
+curl -X POST http://localhost:8000/v1/analyze-creative \
   -H "Content-Type: application/json" \
   -d "{
-    \"ad_image_base64\": \"$IMAGE_B64\",
-    \"num_personas\": 10,
-    \"segment\": \"millennial_women\"
+    \"creative_base64\": \"$IMAGE_B64\",
+    \"personas\": [
+      \"You are Sarah, a 35-year-old marketing manager earning \$85k/year in Seattle. You value quality and sustainability.\",
+      \"You are Mike, a 28-year-old software engineer earning \$110k/year in San Francisco. You prioritize convenience.\"
+    ]
   }"
 ```
 
-**Returns:** Predicted conversion rate, confidence, PMF, individual persona results, cost estimate
+## Environment Variables
 
-**Cost:** ~$0.01-0.02 per persona (~$0.20-0.40 for 20 personas)
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `GEMINI_API_KEY` | Yes | - | Google Gemini API key |
+| `GEMINI_MODEL` | No | gemini-2.5-flash | Gemini model to use |
+| `PORT` | No | 8000 | Server port |
+| `LOG_LEVEL` | No | INFO | Logging level |
 
-#### `POST /v1/generate-personas`
+## Deployment
 
-Generate synthetic customer personas (for testing/debugging).
+### Docker
 
-**Example:**
 ```bash
-curl -X POST http://localhost:8000/v1/generate-personas \
-  -H "Content-Type: application/json" \
-  -d '{"num_personas": 3, "segment": "millennial_women"}'
+# Build
+docker build -t pipeguru-ssr-api .
+
+# Run
+docker run -p 8000:8000 \
+  -e GEMINI_API_KEY=your_key_here \
+  pipeguru-ssr-api
 ```
 
-#### `GET /v1/personas/segments`
+### Cloud Run
 
-List available persona segments.
-
-**Segments:** `general_consumer`, `millennial_women`, `gen_z`
+See `deploy.sh` for automated deployment to Google Cloud Run.
 
 ## Documentation
 
-- [API Reference](docs/api-reference.md)
-- [Self-Hosting Guide](docs/self-hosting.md)
-- [Quick Start Tutorial](docs/quickstart.md)
+- Interactive API docs: `http://localhost:8000/docs`
+- ReDoc documentation: `http://localhost:8000/redoc`
 
 ## Features
 
