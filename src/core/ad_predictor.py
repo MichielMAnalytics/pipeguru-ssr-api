@@ -74,7 +74,7 @@ class AdPredictor:
         for i, (persona, llm_resp, pmf) in enumerate(zip(personas, llm_responses, pmfs), 1):
             most_likely = int(np.argmax(pmf) + 1)  # 1-indexed
             expected_val = sum((j + 1) * p for j, p in enumerate(pmf))
-            confidence = float(np.max(pmf))
+            rating_certainty = float(np.max(pmf))
 
             persona_results.append({
                 "persona_id": i,
@@ -83,20 +83,20 @@ class AdPredictor:
                 "quantitative_score": most_likely,
                 "expected_value": round(expected_val, 2),
                 "pmf": [round(float(p), 4) for p in pmf],
-                "confidence": round(confidence, 4),
+                "rating_certainty": round(rating_certainty, 4),
             })
 
         # Step 4: Calculate aggregates
         aggregate_pmf = np.mean(pmfs, axis=0)
         avg_score = float(np.mean([r["expected_value"] for r in persona_results]))
-        conversion_rate = self._calculate_conversion_rate(aggregate_pmf)
-        aggregate_confidence = self._calculate_confidence(pmfs)
+        purchase_intent = self._calculate_purchase_intent(aggregate_pmf)
+        persona_agreement = self._calculate_persona_agreement(pmfs)
 
         aggregate = {
             "average_score": round(avg_score, 2),
-            "predicted_conversion_rate": round(conversion_rate, 4),
+            "predicted_purchase_intent": round(purchase_intent, 4),
             "pmf_aggregate": [round(float(p), 4) for p in aggregate_pmf],
-            "confidence": round(aggregate_confidence, 4),
+            "persona_agreement": round(persona_agreement, 4),
         }
 
         # Step 5: Metadata
@@ -215,37 +215,40 @@ class AdPredictor:
             context += f"{i} = {sentence}\n"
         return context
 
-    def _calculate_conversion_rate(self, pmf: np.ndarray) -> float:
+    def _calculate_purchase_intent(self, pmf: np.ndarray) -> float:
         """
-        Calculate predicted conversion rate from PMF.
+        Calculate predicted purchase intent from PMF.
 
-        For a 5-point scale, we consider ratings 4-5 as "likely to convert".
+        For a 5-point scale, we consider ratings 4-5 as "likely to purchase".
         """
         # Sum probabilities for top 2 ratings
         if len(pmf) >= 4:
-            conversion_rate = float(np.sum(pmf[-2:]))
+            purchase_intent = float(np.sum(pmf[-2:]))
         else:
             # For shorter scales, take top rating
-            conversion_rate = float(pmf[-1])
+            purchase_intent = float(pmf[-1])
 
-        return conversion_rate
+        return purchase_intent
 
-    def _calculate_confidence(self, pmfs: np.ndarray) -> float:
+    def _calculate_persona_agreement(self, pmfs: np.ndarray) -> float:
         """
-        Calculate confidence score based on agreement across personas.
+        Calculate persona agreement score based on consensus across personas.
 
-        Higher confidence = personas agree more on the rating.
+        Higher agreement = personas have more consensus on the rating.
+        Lower agreement = personas have divergent opinions.
+
+        This measures how much personas agree with each other, not individual certainty.
         """
         # Calculate standard deviation of expected values
         expected_values = [sum((i + 1) * p for i, p in enumerate(pmf)) for pmf in pmfs]
         std_dev = float(np.std(expected_values))
 
-        # Convert to confidence (lower std = higher confidence)
+        # Convert to agreement (lower std = higher agreement)
         # Normalize to 0-1 scale (assuming max std ~2 for 5-point scale)
         max_std = 2.0
-        confidence = max(0.0, 1.0 - (std_dev / max_std))
+        agreement = max(0.0, 1.0 - (std_dev / max_std))
 
-        return confidence
+        return agreement
 
     def _calculate_cost(self, num_personas: int) -> dict:
         """Calculate estimated cost for the prediction."""

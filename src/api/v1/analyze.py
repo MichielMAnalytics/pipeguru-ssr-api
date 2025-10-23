@@ -97,8 +97,8 @@ class PersonaAnalysisResult(BaseModel):
     pmf: List[float] = Field(
         ..., description="Probability distribution over 1-5 scale"
     )
-    confidence: float = Field(
-        ..., ge=0.0, le=1.0, description="Confidence in this rating (max probability in PMF)"
+    rating_certainty: float = Field(
+        ..., ge=0.0, le=1.0, description="Certainty of this rating (max probability in PMF) - measures decisiveness"
     )
 
 
@@ -108,17 +108,17 @@ class AggregateResults(BaseModel):
     average_score: float = Field(
         ..., description="Average expected value across personas"
     )
-    predicted_conversion_rate: float = Field(
+    predicted_purchase_intent: float = Field(
         ...,
         ge=0.0,
         le=1.0,
-        description="Predicted conversion rate (% likely to purchase)",
+        description="Predicted purchase intent (% likely to purchase)",
     )
     pmf_aggregate: List[float] = Field(
         ..., description="Averaged PMF across all personas"
     )
-    confidence: float = Field(
-        ..., ge=0.0, le=1.0, description="Confidence based on persona agreement"
+    persona_agreement: float = Field(
+        ..., ge=0.0, le=1.0, description="Agreement/consensus between personas - measures how much personas agree on rating"
     )
 
 
@@ -187,7 +187,7 @@ async def analyze_creative(
 
         result = response.json()
         print(f"Average score: {result['aggregate']['average_score']}/5")
-        print(f"Conversion rate: {result['aggregate']['predicted_conversion_rate']:.1%}")
+        print(f"Purchase intent: {result['aggregate']['predicted_purchase_intent']:.1%}")
         ```
 
     Cost: ~$0.0015 per persona (e.g., 10 personas = ~$0.015)
@@ -221,7 +221,7 @@ async def analyze_creative(
 
         logger.info(
             f"Analysis complete: avg_score={result['aggregate']['average_score']:.2f}, "
-            f"conversion_rate={result['aggregate']['predicted_conversion_rate']:.1%}, "
+            f"purchase_intent={result['aggregate']['predicted_purchase_intent']:.1%}, "
             f"time={processing_time:.1f}s"
         )
 
