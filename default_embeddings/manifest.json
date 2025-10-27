@@ -1,0 +1,15 @@
+{
+  "model": "models/text-embedding-004",
+  "dimensions": 768,
+  "question_type": "purchase_intent",
+  "num_sets": 6,
+  "generated_at": "2025-10-27T20:08:19.591192+00:00",
+  "files": [
+    "models_text-embedding-004_768d_purchase_intent_set_0.npy",
+    "models_text-embedding-004_768d_purchase_intent_set_1.npy",
+    "models_text-embedding-004_768d_purchase_intent_set_2.npy",
+    "models_text-embedding-004_768d_purchase_intent_set_3.npy",
+    "models_text-embedding-004_768d_purchase_intent_set_4.npy",
+    "models_text-embedding-004_768d_purchase_intent_set_5.npy"
+  ]
+}

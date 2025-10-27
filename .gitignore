@@ -53,5 +53,24 @@ htmlcov/
 # Logs
 *.log
 
+# Data
+data/
 
 *.md
+
+
+2510.08338v2.pdf
+
+
+results/
+
+
+semantic-similarity-rating/
+
+# Default embeddings (keep manifest, ignore .npy files)
+default_embeddings/*.npy
+!default_embeddings/manifest.json
+!default_embeddings/README.md
+
+# Test results
+test_results_*.json

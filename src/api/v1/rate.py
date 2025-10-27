@@ -8,6 +8,7 @@ import polars as po
 from fastapi import APIRouter, HTTPException
 from semantic_similarity_rating import ResponseRater
 
+from src.core.reference_statements import get_reference_sets
 from src.models.schemas import RateRequest, RateResponse, RatingResult
 
 router = APIRouter()
@@ -51,26 +52,49 @@ async def rate_responses(request: RateRequest):
     start_time = time.time()
 
     try:
-        # Create reference DataFrame
         num_points = len(request.reference_sentences)
-        df = po.DataFrame(
-            {
-                "id": ["default"] * num_points,
-                "int_response": list(range(1, num_points + 1)),
-                "sentence": request.reference_sentences,
-            }
-        )
 
-        # Initialize ResponseRater in text mode
-        rater = ResponseRater(df, model_name="all-MiniLM-L6-v2")
+        # Determine which reference sets to use
+        if request.use_multiple_reference_sets:
+            # Use 6 reference sets from paper for better stability (KS sim ~0.88 vs ~0.72)
+            all_reference_sets = get_reference_sets("purchase_intent")
+            reference_sentences_list = all_reference_sets
+            num_sets = len(all_reference_sets)
+        else:
+            # Use user-provided reference sentences only
+            reference_sentences_list = [request.reference_sentences]
+            num_sets = 1
 
-        # Get PMFs from responses
-        pmfs = rater.get_response_pmfs(
-            reference_set_id="default",
-            llm_responses=request.responses,
-            temperature=request.temperature,
-            epsilon=request.epsilon,
-        )
+        # Collect PMFs from all reference sets
+        all_pmfs_per_response = [[] for _ in request.responses]
+
+        for ref_idx, reference_sentences in enumerate(reference_sentences_list):
+            # Create reference DataFrame
+            df = po.DataFrame(
+                {
+                    "id": [f"set_{ref_idx}"] * num_points,
+                    "int_response": list(range(1, num_points + 1)),
+                    "sentence": reference_sentences,
+                }
+            )
+
+            # Initialize ResponseRater
+            rater = ResponseRater(df, model_name="all-MiniLM-L6-v2")
+
+            # Get PMFs for this reference set
+            pmfs_for_set = rater.get_response_pmfs(
+                reference_set_id=f"set_{ref_idx}",
+                llm_responses=request.responses,
+                temperature=request.temperature,
+                epsilon=request.epsilon,
+            )
+
+            # Collect PMFs for each response
+            for response_idx, pmf in enumerate(pmfs_for_set):
+                all_pmfs_per_response[response_idx].append(pmf)
+
+        # Average PMFs across all reference sets for each response
+        pmfs = [np.mean(pmf_list, axis=0) for pmf_list in all_pmfs_per_response]
 
         # Format results
         ratings: List[RatingResult] = []
@@ -99,6 +123,8 @@ async def rate_responses(request: RateRequest):
             metadata={
                 "num_responses": len(request.responses),
                 "num_reference_sentences": num_points,
+                "num_reference_sets": num_sets,
+                "use_multiple_reference_sets": request.use_multiple_reference_sets,
                 "processing_time_ms": processing_time_ms,
             },
         )

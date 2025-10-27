@@ -41,6 +41,10 @@ class RateRequest(BaseModel):
         ge=0.0,
         le=1.0,
     )
+    use_multiple_reference_sets: bool = Field(
+        default=True,
+        description="Use 6 reference sets and average PMFs (recommended by paper for stability)",
+    )
 
     model_config = {
         "json_schema_extra": {
@@ -98,3 +102,96 @@ class HealthResponse(BaseModel):
 
     status: str = Field(..., description="Health status", example="healthy")
     version: str = Field(..., description="API version", example="0.1.0")
+
+
+# Ad Prediction Schemas
+
+class PredictAdRequest(BaseModel):
+    """Request schema for /v1/predict-ad endpoint."""
+
+    ad_image_base64: str = Field(
+        ...,
+        description="Base64-encoded ad image",
+        min_length=100,
+    )
+    num_personas: int = Field(
+        default=20,
+        ge=1,
+        le=100,
+        description="Number of synthetic personas to generate",
+    )
+    segment: str = Field(
+        default="general_consumer",
+        description="Persona segment (general_consumer, millennial_women, gen_z)",
+    )
+    reference_sentences: List[str] = Field(
+        default=[
+            "I definitely would not purchase",
+            "I probably would not purchase",
+            "I might or might not purchase",
+            "I probably would purchase",
+            "I definitely would purchase",
+        ],
+        description="Reference sentences for Likert scale",
+        min_length=2,
+    )
+    temperature: float = Field(
+        default=1.0,
+        description="SSR temperature parameter",
+        ge=0.0,
+        le=10.0,
+    )
+    epsilon: float = Field(
+        default=0.01,
+        description="SSR epsilon parameter",
+        ge=0.0,
+        le=1.0,
+    )
+    use_multiple_reference_sets: bool = Field(
+        default=True,
+        description="Use 6 reference sets and average PMFs (recommended by paper for stability)",
+    )
+
+
+class PersonaResult(BaseModel):
+    """Individual persona evaluation result."""
+
+    persona_id: int = Field(..., description="Persona identifier")
+    persona_description: str = Field(..., description="Truncated persona description")
+    llm_response: str = Field(..., description="Truncated LLM response")
+    pmf: List[float] = Field(..., description="Probability mass function")
+    expected_value: float = Field(..., description="Expected value (1-5 scale)")
+
+
+class PredictAdResponse(BaseModel):
+    """Response schema for /v1/predict-ad endpoint."""
+
+    predicted_conversion_rate: float = Field(
+        ...,
+        description="Predicted conversion rate (0-1)",
+        ge=0.0,
+        le=1.0,
+    )
+    confidence: float = Field(
+        ...,
+        description="Confidence score based on persona agreement",
+        ge=0.0,
+        le=1.0,
+    )
+    pmf_aggregate: List[float] = Field(
+        ...,
+        description="Aggregated probability mass function across all personas",
+    )
+    expected_value: float = Field(
+        ...,
+        description="Average expected purchase intent (1-5 scale)",
+    )
+    persona_results: List[PersonaResult] = Field(
+        ...,
+        description="Individual results for each persona",
+    )
+    metadata: dict = Field(
+        ...,
+        description="Additional metadata",
+        example={"num_personas": 20, "llm_calls": 20, "llm_model": "gemini-2.5-flash"},
+    )
