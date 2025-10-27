@@ -12,18 +12,11 @@ Built on the [semantic-similarity-rating](https://github.com/pymc-labs/semantic-
 
 ## Quick Start
 
-### Using Docker
-
 ```bash
-docker-compose up
-```
+# Clone repository
+git clone https://github.com/MichielMAnalytics/pipeguru-ssr-api.git
+cd pipeguru-ssr-api
 
-API available at `http://localhost:8000`
-API docs at `http://localhost:8000/docs`
-
-### Local Development
-
-```bash
 # Create virtual environment
 python3.12 -m venv .venv
 source .venv/bin/activate
@@ -31,23 +24,19 @@ source .venv/bin/activate
 # Install dependencies
 pip install -r requirements.txt
 
+# Set up environment variables
+cp .env.example .env
+# Edit .env and add your GEMINI_API_KEY
+
+# Generate reference embeddings (one-time setup)
+python scripts/generate_reference_embeddings.py
+
 # Run server
 uvicorn src.main:app --reload
-
-# API will be available at http://localhost:8000
-# Interactive docs at http://localhost:8000/docs
 ```
 
-### Installation from Source
-
-```bash
-# Clone repository
-git clone https://github.com/MichielMAnalytics/pipeguru-ssr-api.git
-cd pipeguru-ssr-api
-
-# Install
-pip install -r requirements.txt
-```
+API available at `http://localhost:8000`
+Interactive docs at `http://localhost:8000/docs`
 
 ## API Endpoints
 
@@ -187,24 +176,6 @@ curl -X POST http://localhost:8000/v1/analyze-creative \
 | `GEMINI_MODEL` | No | gemini-2.5-flash | Gemini model to use |
 | `PORT` | No | 8000 | Server port |
 | `LOG_LEVEL` | No | INFO | Logging level |
-
-## Deployment
-
-### Docker
-
-```bash
-# Build
-docker build -t pipeguru-ssr-api .
-
-# Run
-docker run -p 8000:8000 \
-  -e GEMINI_API_KEY=your_key_here \
-  pipeguru-ssr-api
-```
-
-### Cloud Run
-
-See `deploy.sh` for automated deployment to Google Cloud Run.
 
 ## Documentation
 

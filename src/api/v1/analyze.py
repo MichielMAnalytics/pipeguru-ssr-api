@@ -39,8 +39,8 @@ class AnalyzeCreativeRequest(BaseModel):
     personas: List[str] = Field(
         ...,
         min_length=1,
-        max_length=50,
-        description="List of persona descriptions to evaluate against",
+        max_length=1000,
+        description="List of persona descriptions to evaluate against (max 1000 for scalability testing)",
     )
 
     # SSR parameters (optional, use defaults)
@@ -139,8 +139,7 @@ class AnalyzeCreativeResponse(BaseModel):
         json_schema_extra={
             "example": {
                 "num_personas": 10,
-                "cost_usd": 0.15,
-                "processing_time_seconds": 23.5,
+                "llm_calls": 10,
                 "llm_model": "gemini-2.5-flash",
             }
         },
@@ -190,8 +189,7 @@ async def analyze_creative(
         print(f"Purchase intent: {result['aggregate']['predicted_purchase_intent']:.1%}")
         ```
 
-    Cost: ~$0.0015 per persona (e.g., 10 personas = ~$0.015)
-    Time: ~10-30 seconds depending on number of personas
+    Processing time: ~10-30 seconds depending on number of personas
     """
     start_time = time.time()
 
@@ -346,8 +344,7 @@ async def generate_personas(
         # Use these personas in analyze-creative
         ```
 
-    Cost: ~$0.001 per generation
-    Time: ~2-5 seconds
+    Processing time: ~2-5 seconds
     """
     start_time = time.time()
 

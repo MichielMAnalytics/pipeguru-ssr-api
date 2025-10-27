@@ -1,7 +1,10 @@
 """Ad prediction orchestration logic."""
 
 import asyncio
-from typing import List, Tuple
+import json
+import os
+from pathlib import Path
+from typing import Dict, List, Tuple
 
 import numpy as np
 import polars as po
@@ -16,11 +19,86 @@ from src.core.reference_statements import get_reference_sets
 class AdPredictor:
     """Orchestrates ad performance prediction using personas, LLM, and SSR."""
 
-    def __init__(self):
-        """Initialize the predictor with LLM client, embeddings, and persona generator."""
+    def __init__(
+        self,
+        embeddings_dir: Path = Path("default_embeddings"),
+        max_concurrent_llm_calls: int | None = None,
+    ):
+        """
+        Initialize the predictor with LLM client, embeddings, and persona generator.
+
+        Args:
+            embeddings_dir: Directory containing pre-computed reference embeddings
+            max_concurrent_llm_calls: Maximum concurrent LLM API calls
+                - Free tier: Use 3-5 (15 RPM limit)
+                - Paid tier: Use 50-100 (1000 RPM limit)
+                - Default: Read from MAX_CONCURRENT_LLM_CALLS env var, or 50
+        """
         self.llm_client = LLMClient()
         self.embeddings = GeminiEmbeddings()
         self.persona_generator = PersonaGenerator()
+
+        # Concurrency control - read from env or use default
+        if max_concurrent_llm_calls is None:
+            max_concurrent_llm_calls = int(os.getenv("MAX_CONCURRENT_LLM_CALLS", "50"))
+        self.max_concurrent_llm_calls = max_concurrent_llm_calls
+
+        print(f"[AdPredictor] Initialized with max {self.max_concurrent_llm_calls} concurrent LLM calls")
+
+        # Cache for pre-computed reference embeddings
+        self._reference_embeddings_cache: Dict[str, np.ndarray] = {}
+        self._embeddings_dir = embeddings_dir
+
+        # Load reference embeddings at initialization
+        self._load_reference_embeddings()
+
+    def _load_reference_embeddings(self):
+        """
+        Load pre-computed reference embeddings from disk.
+
+        This eliminates the need to regenerate embeddings on every request,
+        saving ~10 seconds and 30 API calls per request.
+        """
+        manifest_path = self._embeddings_dir / "manifest.json"
+
+        if not manifest_path.exists():
+            print(f"[AdPredictor] Warning: No pre-computed embeddings found at {manifest_path}")
+            print(f"[AdPredictor] Run 'python scripts/generate_reference_embeddings.py' to generate them")
+            print(f"[AdPredictor] Falling back to runtime embedding generation (slower)")
+            return
+
+        # Load manifest
+        with open(manifest_path, "r") as f:
+            manifest = json.load(f)
+
+        # Verify model matches
+        model_name = self.embeddings.model
+        if manifest["model"] != model_name:
+            print(f"[AdPredictor] Warning: Embedding model mismatch!")
+            print(f"  Expected: {model_name}")
+            print(f"  Found in cache: {manifest['model']}")
+            print(f"[AdPredictor] Falling back to runtime embedding generation")
+            return
+
+        # Load embeddings for each reference set
+        print(f"[AdPredictor] Loading {manifest['num_sets']} pre-computed reference embeddings...")
+        for filename in manifest["files"]:
+            filepath = self._embeddings_dir / filename
+            if not filepath.exists():
+                print(f"[AdPredictor] Warning: Missing file {filename}, skipping cache")
+                self._reference_embeddings_cache.clear()
+                return
+
+            # Extract set index from filename (e.g., "..._set_0.npy" -> 0)
+            set_idx = int(filename.split("_set_")[1].split(".")[0])
+            cache_key = f"purchase_intent_set_{set_idx}"
+
+            # Load numpy array
+            embeddings_array = np.load(filepath)
+            self._reference_embeddings_cache[cache_key] = embeddings_array
+
+        print(f"[AdPredictor] ✓ Loaded {len(self._reference_embeddings_cache)} reference embeddings from cache")
+        print(f"[AdPredictor] This saves ~30 API calls per request!")
 
     async def analyze_creative(
         self,
@@ -100,11 +178,9 @@ class AdPredictor:
         }
 
         # Step 5: Metadata
-        cost = self._calculate_cost(len(personas))
         metadata = {
             "num_personas": len(personas),
-            "cost_usd": cost["estimated_cost_usd"],
-            "llm_calls": cost["llm_calls"],
+            "llm_calls": len(personas),
             "llm_model": "gemini-2.5-flash",
         }
 
@@ -117,10 +193,18 @@ class AdPredictor:
     async def _get_llm_evaluations(
         self, ad_image_base64: str, personas: List[str], reference_context: str
     ) -> List[str]:
-        """Get LLM evaluations for all personas with rate limiting."""
-        # Limit concurrent requests to avoid rate limits (200K tokens/min)
-        # Each request ~1200 tokens, so 5 concurrent = ~6K tokens, safe margin
-        semaphore = asyncio.Semaphore(5)
+        """
+        Get LLM evaluations for all personas with rate limiting.
+
+        Gemini 2.5 Flash rate limits:
+        - Free tier: 15 RPM, 1M TPM
+        - Paid tier: 1000 RPM, 4M TPM
+
+        Concurrency is controlled by max_concurrent_llm_calls set in __init__.
+        """
+        semaphore = asyncio.Semaphore(self.max_concurrent_llm_calls)
+
+        print(f"[AdPredictor] Processing {len(personas)} personas with max {self.max_concurrent_llm_calls} concurrent calls...")
 
         async def eval_with_limit(persona):
             async with semaphore:
@@ -175,8 +259,15 @@ class AdPredictor:
         for ref_idx, ref_sentences in enumerate(reference_sentences_list):
             print(f"[AdPredictor] Processing reference set {ref_idx + 1}/{len(reference_sentences_list)}...")
 
-            # Generate embeddings for reference sentences
-            ref_embeddings = self.embeddings.encode(ref_sentences)
+            # Try to load from cache first, otherwise generate embeddings
+            cache_key = f"purchase_intent_set_{ref_idx}"
+            if cache_key in self._reference_embeddings_cache:
+                ref_embeddings = self._reference_embeddings_cache[cache_key]
+                print(f"[AdPredictor]   ✓ Using cached embeddings (saved 1 API call)")
+            else:
+                # Generate embeddings for reference sentences (fallback)
+                print(f"[AdPredictor]   Generating embeddings (cache miss)...")
+                ref_embeddings = self.embeddings.encode(ref_sentences)
 
             # Create reference DataFrame with embeddings
             df = po.DataFrame(
@@ -250,13 +341,3 @@ class AdPredictor:
 
         return agreement
 
-    def _calculate_cost(self, num_personas: int) -> dict:
-        """Calculate estimated cost for the prediction."""
-        # Gemini 2.5 Flash costs approximately $0.001-0.002 per call
-        cost_per_call = 0.0015  # Average estimate
-        total_cost = num_personas * cost_per_call
-
-        return {
-            "llm_calls": num_personas,
-            "estimated_cost_usd": round(total_cost, 2),
-        }

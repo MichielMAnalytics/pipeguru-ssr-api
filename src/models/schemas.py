@@ -190,12 +190,8 @@ class PredictAdResponse(BaseModel):
         ...,
         description="Individual results for each persona",
     )
-    cost: dict = Field(
-        ...,
-        description="Cost breakdown",
-        example={"llm_calls": 20, "estimated_cost_usd": 0.30},
-    )
     metadata: dict = Field(
         ...,
         description="Additional metadata",
+        example={"num_personas": 20, "llm_calls": 20, "llm_model": "gemini-2.5-flash"},
     )

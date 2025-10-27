@@ -91,21 +91,23 @@ what appeals to you or turns you off."""
                 types.Part(text=user_prompt)
             ]
 
-            # Generate content with system instruction (uses Gemini defaults)
-            response = self.client.models.generate_content(
+            # Generate content with system instruction (ASYNC!)
+            # Disable automatic function calling (AFC) to improve performance
+            response = await self.client.aio.models.generate_content(
                 model=self.model,
                 contents=contents,
                 config=types.GenerateContentConfig(
                     system_instruction=system_prompt,
+                    automatic_function_calling=types.AutomaticFunctionCallingConfig(
+                        disable=True
+                    ),
                 )
             )
 
             content = response.text
 
-            # DEBUG: Log if content is None/empty
+            # Handle empty responses
             if not content:
-                print(f"[DEBUG LLM] Empty response received!")
-                print(f"[DEBUG LLM] Response object: {response}")
 
                 # Check if it was cut off by max tokens
                 if hasattr(response, 'candidates') and response.candidates:
@@ -121,9 +123,6 @@ what appeals to you or turns you off."""
             return content
 
         except Exception as e:
-            print(f"[DEBUG LLM] Exception in evaluate_ad_with_persona: {str(e)}")
-            import traceback
-            traceback.print_exc()
             raise RuntimeError(f"Error calling Gemini API: {str(e)}")
 
     async def generate_text(self, prompt: str) -> str:
