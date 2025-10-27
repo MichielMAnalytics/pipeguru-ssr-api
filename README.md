@@ -79,14 +79,13 @@ Analyze an ad creative with specific personas. Returns qualitative feedback and 
   },
   "metadata": {
     "num_personas": 10,
-    "cost_usd": 0.15,
-    "processing_time_seconds": 23.5
+    "llm_calls": 10,
+    "llm_model": "gemini-2.5-flash"
   }
 }
 ```
 
-**Cost:** ~$0.0015 per persona (~$0.015 for 10 personas)
-**Time:** ~10-30 seconds depending on number of personas
+**Processing time:** ~10-30 seconds depending on number of personas
 
 ### Helper Endpoints
 
@@ -146,8 +145,8 @@ print("\nAggregate Results:")
 print(f"  Average Score: {result['aggregate']['average_score']}/5")
 print(f"  Predicted Conversion Rate: {result['aggregate']['predicted_conversion_rate']:.1%}")
 print(f"  Confidence: {result['aggregate']['confidence']:.1%}")
-print(f"\nCost: ${result['metadata']['cost_usd']}")
-print(f"Processing Time: {result['metadata']['processing_time_seconds']}s")
+print(f"\nLLM Calls: {result['metadata']['llm_calls']}")
+print(f"Model: {result['metadata']['llm_model']}")
 ```
 
 ### cURL
