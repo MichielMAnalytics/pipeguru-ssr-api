@@ -194,14 +194,6 @@ Implementation validated against the paper: **"LLMs Reproduce Human Purchase Int
 - **KS similarity improvement**: ~0.88 vs ~0.72 (single set)
 - Configurable via `use_multiple_reference_sets` parameter
 
-#### 📊 Validation Metrics
-Complete metrics suite for evaluating prediction accuracy:
-- **KS Distributional Similarity** (target: >0.85)
-- **Correlation Attainment ρ** (target: >0.80)
-- **Spearman Ranking Correlation** (target: >0.60)
-- **Winner Prediction Accuracy** (for A/B testing)
-- **Mean Absolute Error**
-
 #### 👥 Enhanced Personas
 Demographics-focused persona generation based on paper findings:
 - **Age and income emphasis** (strongest signals for purchase intent)
@@ -209,10 +201,8 @@ Demographics-focused persona generation based on paper findings:
 - **Structured DEMOGRAPHICS section** in all personas
 - **3 segments**: general_consumer, millennial_women, gen_z
 
-#### ✅ Test Coverage
-- **25 comprehensive tests** (all passing)
-- Coverage: reference statements, endpoints, metrics, personas, integration
-- Validation against paper benchmarks
+#### 🚧 Validation & Testing (In Progress)
+We're actively working on comprehensive validation metrics and test coverage to ensure prediction accuracy aligns with research benchmarks.
 
 ## Architecture
 
