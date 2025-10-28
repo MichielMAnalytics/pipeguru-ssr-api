@@ -130,12 +130,10 @@ class AdPredictor:
             }
         """
         # Step 1: Get LLM evaluations (in parallel for speed)
-        reference_context = self._build_reference_context(reference_sentences)
-
+        # Note: We do NOT pass reference_context to LLM to avoid anchoring bias
         llm_responses = await self._get_llm_evaluations(
             ad_image_base64=creative_base64,
             personas=personas,
-            reference_context=reference_context,
         )
 
         # Step 2: Convert to PMFs using SSR
@@ -191,10 +189,13 @@ class AdPredictor:
         }
 
     async def _get_llm_evaluations(
-        self, ad_image_base64: str, personas: List[str], reference_context: str
+        self, ad_image_base64: str, personas: List[str]
     ) -> List[str]:
         """
         Get LLM evaluations for all personas with rate limiting.
+
+        The LLM is NOT shown the reference scale to avoid anchoring bias.
+        It provides natural language feedback only.
 
         Gemini 2.5 Flash rate limits:
         - Free tier: 15 RPM, 1M TPM
@@ -211,7 +212,6 @@ class AdPredictor:
                 return await self.llm_client.evaluate_ad_with_persona(
                     ad_image_base64=ad_image_base64,
                     persona_description=persona,
-                    reference_context=reference_context,
                 )
 
         tasks = [eval_with_limit(persona) for persona in personas]
@@ -298,13 +298,6 @@ class AdPredictor:
         averaged_pmfs = np.array([np.mean(pmf_list, axis=0) for pmf_list in all_pmfs_per_response])
 
         return averaged_pmfs
-
-    def _build_reference_context(self, reference_sentences: List[str]) -> str:
-        """Build reference context string for LLM prompt."""
-        context = f"We're measuring purchase intent on a {len(reference_sentences)}-point scale:\n"
-        for i, sentence in enumerate(reference_sentences, 1):
-            context += f"{i} = {sentence}\n"
-        return context
 
     def _calculate_purchase_intent(self, pmf: np.ndarray) -> float:
         """

@@ -242,8 +242,8 @@ class GeneratePersonasRequest(BaseModel):
     num_personas: int = Field(
         ...,
         ge=1,
-        le=20,
-        description="Number of personas to generate (1-20)",
+        le=1000,
+        description="Number of personas to generate (1-1000)",
     )
 
     characteristics: Optional[str] = Field(
@@ -349,8 +349,22 @@ async def generate_personas(
     start_time = time.time()
 
     try:
-        # Build prompt for Gemini
-        prompt = f"""Generate {request.num_personas} diverse customer personas for market research.
+        logger.info(
+            f"Generating {request.num_personas} personas with characteristics: {request.characteristics}"
+        )
+
+        # Generate personas in batches (max 50 per LLM call for reliability)
+        batch_size = 50
+        all_personas = []
+
+        num_batches = (request.num_personas + batch_size - 1) // batch_size  # Ceiling division
+
+        for batch_idx in range(num_batches):
+            batch_start = batch_idx * batch_size
+            batch_count = min(batch_size, request.num_personas - batch_start)
+
+            # Build prompt for this batch
+            prompt = f"""Generate {batch_count} diverse customer personas for market research.
 
 REQUIREMENTS:
 - Each persona should be 2-3 sentences
@@ -359,24 +373,24 @@ REQUIREMENTS:
 - Make them feel realistic and varied
 """
 
-        if request.characteristics:
-            prompt += f"\nCHARACTERISTICS: {request.characteristics}"
+            if request.characteristics:
+                prompt += f"\nCHARACTERISTICS: {request.characteristics}"
 
-        if request.age_range:
-            prompt += f"\nAGE RANGE: {request.age_range}"
+            if request.age_range:
+                prompt += f"\nAGE RANGE: {request.age_range}"
 
-        if request.income_range:
-            prompt += f"\nINCOME RANGE: {request.income_range}"
+            if request.income_range:
+                prompt += f"\nINCOME RANGE: {request.income_range}"
 
-        if request.location:
-            prompt += f"\nLOCATION: {request.location}"
+            if request.location:
+                prompt += f"\nLOCATION: {request.location}"
 
-        if request.diversity:
-            prompt += "\n\nIMPORTANT: Ensure diversity in gender, age (within range), income (within range), occupations, and perspectives."
+            if request.diversity:
+                prompt += "\n\nIMPORTANT: Ensure diversity in gender, age (within range), income (within range), occupations, and perspectives."
 
-        prompt += f"""
+            prompt += f"""
 
-Generate exactly {request.num_personas} personas, one per line, numbered 1-{request.num_personas}.
+Generate exactly {batch_count} personas, one per line, numbered 1-{batch_count}.
 Each should start with "You are..." and be self-contained.
 
 Example format:
@@ -384,40 +398,44 @@ Example format:
 2. You are Mike, a 28-year-old software engineer earning $110k/year in San Francisco. You prioritize convenience, are tech-savvy, and have low price sensitivity.
 """
 
-        logger.info(
-            f"Generating {request.num_personas} personas with characteristics: {request.characteristics}"
-        )
+            logger.info(f"Generating batch {batch_idx + 1}/{num_batches} ({batch_count} personas)")
 
-        # Generate with Gemini
-        response_text = await llm_client.generate_text(prompt)
+            # Generate with Gemini
+            response_text = await llm_client.generate_text(prompt)
 
-        # Parse response into individual personas
-        lines = [line.strip() for line in response_text.strip().split("\n") if line.strip()]
+            # Parse response into individual personas
+            lines = [line.strip() for line in response_text.strip().split("\n") if line.strip()]
 
-        personas = []
-        for line in lines:
-            # Remove numbering (e.g., "1. " or "1) ")
-            cleaned = line
-            if len(line) > 3 and line[0].isdigit() and line[1] in [".", ")", ":"]:
-                cleaned = line[2:].strip()
-            elif len(line) > 4 and line[:2].isdigit() and line[2] in [".", ")", ":"]:
-                cleaned = line[3:].strip()
+            batch_personas = []
+            for line in lines:
+                # Remove numbering (e.g., "1. " or "1) ")
+                cleaned = line
+                if len(line) > 3 and line[0].isdigit() and line[1] in [".", ")", ":"]:
+                    cleaned = line[2:].strip()
+                elif len(line) > 4 and line[:2].isdigit() and line[2] in [".", ")", ":"]:
+                    cleaned = line[3:].strip()
+                elif len(line) > 5 and line[:3].isdigit() and line[3] in [".", ")", ":"]:
+                    cleaned = line[4:].strip()
 
-            # Only include if it starts with "You are" and is substantial
-            if cleaned.lower().startswith("you are") and len(cleaned) > 50:
-                personas.append(cleaned)
+                # Only include if it starts with "You are" and is substantial
+                if cleaned.lower().startswith("you are") and len(cleaned) > 50:
+                    batch_personas.append(cleaned)
 
-        # Ensure we have the requested number
-        if len(personas) < request.num_personas:
-            logger.warning(
-                f"Generated {len(personas)} personas but {request.num_personas} were requested"
-            )
-            # Could retry or raise error, for now just return what we got
-            if len(personas) == 0:
-                raise ValueError("Failed to generate any valid personas. Please try again.")
+            # Ensure we got enough personas for this batch
+            if len(batch_personas) < batch_count:
+                logger.warning(
+                    f"Batch {batch_idx + 1}: Generated {len(batch_personas)} personas but {batch_count} were requested"
+                )
 
-        # Trim to exact number if we got more
-        personas = personas[: request.num_personas]
+            all_personas.extend(batch_personas[:batch_count])
+
+        personas = all_personas
+
+        # Final validation
+        if len(personas) == 0:
+            raise ValueError("Failed to generate any valid personas. Please try again.")
+
+        logger.info(f"Successfully generated {len(personas)} personas across {num_batches} batches")
 
         processing_time = time.time() - start_time
 

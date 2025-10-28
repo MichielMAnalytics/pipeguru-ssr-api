@@ -39,7 +39,6 @@ class LLMClient:
         self,
         ad_image_base64: str,
         persona_description: str,
-        reference_context: str,
     ) -> str:
         """
         Evaluate an ad image from the perspective of a synthetic persona.
@@ -47,10 +46,13 @@ class LLMClient:
         Args:
             ad_image_base64: Base64-encoded image data
             persona_description: Description of the synthetic persona
-            reference_context: Context about what we're measuring (e.g., purchase intent)
 
         Returns:
-            str: Natural language response from the persona's perspective
+            str: Natural language response from the persona's perspective (qualitative feedback only)
+
+        Note:
+            The LLM is NOT shown the reference scale. It provides natural language feedback,
+            which is then independently converted to quantitative scores using SSR methodology.
         """
         system_prompt = """You are roleplaying as a specific customer persona.
 You will see an advertisement and respond naturally from that persona's perspective,
@@ -62,8 +64,6 @@ You're scrolling through social media and see the following advertisement:
 
 [IMAGE SHOWN ABOVE]
 
-{reference_context}
-
 Consider:
 1. Does this ad catch your attention?
 2. Is the product relevant to your needs and interests?
@@ -74,7 +74,9 @@ Consider:
 
 Respond naturally and authentically from your perspective. Share your honest thoughts
 about whether you'd be interested in this product and why or why not. Be specific about
-what appeals to you or turns you off."""
+what appeals to you or turns you off.
+
+IMPORTANT: Do NOT state a numeric rating or score. Just describe your thoughts and feelings naturally."""
 
         try:
             # Convert base64 to bytes for Gemini
@@ -140,9 +142,15 @@ what appeals to you or turns you off."""
         """
         try:
             # Use the same async pattern as evaluate_ad_with_persona
+            # Disable automatic function calling (AFC) to improve performance
             response = await self.client.aio.models.generate_content(
                 model=self.model,
                 contents=prompt,
+                config=types.GenerateContentConfig(
+                    automatic_function_calling=types.AutomaticFunctionCallingConfig(
+                        disable=True
+                    ),
+                ),
             )
 
             content = response.text
