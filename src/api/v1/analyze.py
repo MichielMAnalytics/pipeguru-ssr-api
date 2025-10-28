@@ -33,7 +33,7 @@ class AnalyzeCreativeRequest(BaseModel):
     creative_base64: str = Field(
         ...,
         min_length=100,
-        description="Base64-encoded image of the ad creative",
+        description="Base64-encoded image or video of the ad creative",
     )
 
     personas: List[str] = Field(
@@ -41,6 +41,11 @@ class AnalyzeCreativeRequest(BaseModel):
         min_length=1,
         max_length=1000,
         description="List of persona descriptions to evaluate against (max 1000 for scalability testing)",
+    )
+
+    mime_type: Optional[str] = Field(
+        None,
+        description="Optional MIME type of the creative (e.g., 'video/mp4', 'image/jpeg'). Auto-detected if not provided.",
     )
 
     # SSR parameters (optional, use defaults)
@@ -65,13 +70,23 @@ class AnalyzeCreativeRequest(BaseModel):
 
     model_config = {
         "json_schema_extra": {
-            "example": {
-                "creative_base64": "iVBORw0KGgoAAAANSUhEUgAA...",
-                "personas": [
-                    "You are Sarah, a 35-year-old marketing manager earning $85k/year in Seattle. You value quality and sustainability, shop online weekly, and have moderate price sensitivity.",
-                    "You are Mike, a 28-year-old software engineer earning $110k/year in San Francisco. You prioritize convenience, are tech-savvy, and have low price sensitivity.",
-                ],
-            }
+            "examples": [
+                {
+                    "creative_base64": "iVBORw0KGgoAAAANSUhEUgAA...",
+                    "personas": [
+                        "You are Sarah, a 35-year-old marketing manager earning $85k/year in Seattle. You value quality and sustainability, shop online weekly, and have moderate price sensitivity.",
+                        "You are Mike, a 28-year-old software engineer earning $110k/year in San Francisco. You prioritize convenience, are tech-savvy, and have low price sensitivity.",
+                    ],
+                    "mime_type": None,  # Auto-detect
+                },
+                {
+                    "creative_base64": "AAAAIGZ0eXBpc29tAAACAGlzb21pc28y...",
+                    "personas": [
+                        "You are Sarah, a 35-year-old marketing manager earning $85k/year in Seattle.",
+                    ],
+                    "mime_type": "video/mp4",
+                },
+            ]
         }
     }
 
@@ -120,6 +135,9 @@ class AggregateResults(BaseModel):
     persona_agreement: float = Field(
         ..., ge=0.0, le=1.0, description="Agreement/consensus between personas - measures how much personas agree on rating"
     )
+    qualitative_summary: str = Field(
+        ..., description="AI-generated summary of common themes, strengths, and concerns across all persona feedback"
+    )
 
 
 class AnalyzeCreativeResponse(BaseModel):
@@ -154,10 +172,14 @@ async def analyze_creative(
     predictor: Annotated[AdPredictor, Depends(get_ad_predictor)],
 ):
     """
-    Analyze ad creative with specific personas.
+    Analyze ad creative (image or video) with specific personas.
 
     Returns both qualitative feedback and quantitative scores per persona,
     plus aggregated metrics.
+
+    Supports:
+    - Images: JPEG, PNG, GIF, WebP
+    - Videos: MP4, WebM, MOV, AVI, MPEG, FLV, WMV, 3GPP
 
     Args:
         request: AnalyzeCreativeRequest with creative and personas
@@ -165,11 +187,12 @@ async def analyze_creative(
     Returns:
         AnalyzeCreativeResponse with per-persona and aggregate results
 
-    Example:
+    Examples:
         ```python
         import requests
         import base64
 
+        # Analyze an image
         with open("ad.jpg", "rb") as f:
             creative_b64 = base64.b64encode(f.read()).decode()
 
@@ -187,9 +210,26 @@ async def analyze_creative(
         result = response.json()
         print(f"Average score: {result['aggregate']['average_score']}/5")
         print(f"Purchase intent: {result['aggregate']['predicted_purchase_intent']:.1%}")
+
+        # Analyze a video
+        with open("ad.mp4", "rb") as f:
+            video_b64 = base64.b64encode(f.read()).decode()
+
+        response = requests.post(
+            "http://localhost:8000/v1/analyze-creative",
+            json={
+                "creative_base64": video_b64,
+                "personas": ["You are Sarah..."],
+                "mime_type": "video/mp4"  # Optional - auto-detects if not provided
+            }
+        )
         ```
 
-    Processing time: ~10-30 seconds depending on number of personas
+    Processing time:
+    - Images: ~10-30 seconds depending on number of personas
+    - Videos: ~15-45 seconds (videos require more processing)
+
+    Note: For videos, consider keeping file size under 10MB for optimal performance.
     """
     start_time = time.time()
 
@@ -211,6 +251,7 @@ async def analyze_creative(
             temperature=request.temperature,
             epsilon=request.epsilon,
             use_multiple_reference_sets=request.use_multiple_reference_sets,
+            mime_type=request.mime_type,
         )
 
         # Add processing time

@@ -4,7 +4,7 @@ FastAPI service for analyzing ad creatives using synthetic personas and Semantic
 
 ## What is this?
 
-This API analyzes ad creatives (images) by evaluating them through the perspective of specific personas, returning both:
+This API analyzes ad creatives (images and videos) by evaluating them through the perspective of specific personas, returning both:
 - **Qualitative feedback**: "I would buy this because..." (LLM reasoning)
 - **Quantitative scores**: 1-5 purchase likelihood ratings with confidence
 
@@ -44,16 +44,21 @@ Interactive docs at `http://localhost:8000/docs`
 
 #### `POST /v1/analyze-creative`
 
-Analyze an ad creative with specific personas. Returns qualitative feedback and quantitative scores per persona, plus aggregate metrics.
+Analyze an ad creative (image or video) with specific personas. Returns qualitative feedback and quantitative scores per persona, plus aggregate metrics.
+
+**Supported Formats:**
+- **Images**: JPEG, PNG, GIF, WebP
+- **Videos**: MP4, WebM, MOV, AVI, MPEG, FLV, WMV, 3GPP
 
 **Request:**
 ```python
 {
-  "creative_base64": "...",  # Base64-encoded image
+  "creative_base64": "...",  # Base64-encoded image or video
   "personas": [              # Your persona descriptions
     "You are Sarah, a 35-year-old marketing manager earning $85k/year...",
     "You are Mike, a 28-year-old software engineer earning $110k/year..."
-  ]
+  ],
+  "mime_type": "video/mp4"   # Optional - auto-detects if not provided
 }
 ```
 
@@ -68,24 +73,31 @@ Analyze an ad creative with specific personas. Returns qualitative feedback and 
       "quantitative_score": 4,
       "expected_value": 3.8,
       "pmf": [0.05, 0.10, 0.15, 0.40, 0.30],
-      "confidence": 0.85
+      "rating_certainty": 0.85
     }
   ],
   "aggregate": {
     "average_score": 3.8,
-    "predicted_conversion_rate": 0.62,
+    "predicted_purchase_intent": 0.62,
     "pmf_aggregate": [0.08, 0.12, 0.18, 0.35, 0.27],
-    "confidence": 0.82
+    "persona_agreement": 0.82,
+    "qualitative_summary": "Most personas found the product appealing due to its value proposition and design. Key strengths include clear messaging and attractive pricing. Some concerns were raised about shipping costs and delivery timeframes."
   },
   "metadata": {
     "num_personas": 10,
-    "llm_calls": 10,
-    "llm_model": "gemini-2.5-flash"
+    "llm_calls": 11,
+    "llm_model": "gemini-2.5-flash",
+    "media_type": "image",
+    "mime_type": "image/jpeg"
   }
 }
 ```
 
-**Processing time:** ~10-30 seconds depending on number of personas
+**Processing time:**
+- Images: ~10-30 seconds depending on number of personas
+- Videos: ~15-45 seconds (videos require more processing)
+
+**Note:** For videos, keep file size under 10MB for optimal performance.
 
 ### Helper Endpoints
 
@@ -105,10 +117,6 @@ Core SSR rating endpoint for advanced use. Convert text responses to probability
 import requests
 import base64
 
-# Load creative image
-with open("ad.jpg", "rb") as f:
-    creative_b64 = base64.b64encode(f.read()).decode()
-
 # Define personas (your target audience)
 personas = [
     """You are Sarah, a 35-year-old marketing manager earning $85k/year in Seattle.
@@ -121,12 +129,30 @@ personas = [
     You're budget-conscious, shop monthly, and carefully research before purchasing."""
 ]
 
-# Analyze creative
+# Example 1: Analyze an image
+with open("ad.jpg", "rb") as f:
+    creative_b64 = base64.b64encode(f.read()).decode()
+
 response = requests.post(
     "http://localhost:8000/v1/analyze-creative",
     json={
         "creative_base64": creative_b64,
         "personas": personas
+    }
+)
+
+result = response.json()
+
+# Example 2: Analyze a video
+with open("ad.mp4", "rb") as f:
+    video_b64 = base64.b64encode(f.read()).decode()
+
+response = requests.post(
+    "http://localhost:8000/v1/analyze-creative",
+    json={
+        "creative_base64": video_b64,
+        "personas": personas,
+        "mime_type": "video/mp4"  # Optional - auto-detects if not provided
     }
 )
 
@@ -138,24 +164,26 @@ for persona_result in result["persona_results"]:
     print(f"Persona {persona_result['persona_id']}:")
     print(f"  Qualitative: {persona_result['qualitative_feedback'][:100]}...")
     print(f"  Score: {persona_result['quantitative_score']}/5")
-    print(f"  Confidence: {persona_result['confidence']:.1%}\n")
+    print(f"  Rating Certainty: {persona_result['rating_certainty']:.1%}\n")
 
 # Aggregate metrics
 print("\nAggregate Results:")
 print(f"  Average Score: {result['aggregate']['average_score']}/5")
-print(f"  Predicted Conversion Rate: {result['aggregate']['predicted_conversion_rate']:.1%}")
-print(f"  Confidence: {result['aggregate']['confidence']:.1%}")
-print(f"\nLLM Calls: {result['metadata']['llm_calls']}")
+print(f"  Predicted Purchase Intent: {result['aggregate']['predicted_purchase_intent']:.1%}")
+print(f"  Persona Agreement: {result['aggregate']['persona_agreement']:.1%}")
+print(f"  Qualitative Summary: {result['aggregate']['qualitative_summary']}")
+print(f"\nMedia Type: {result['metadata']['media_type']}")
+print(f"MIME Type: {result['metadata']['mime_type']}")
+print(f"LLM Calls: {result['metadata']['llm_calls']}")
 print(f"Model: {result['metadata']['llm_model']}")
 ```
 
 ### cURL
 
 ```bash
-# Encode image
+# Analyze an image
 IMAGE_B64=$(base64 -i ad.jpg)
 
-# Analyze
 curl -X POST http://localhost:8000/v1/analyze-creative \
   -H "Content-Type: application/json" \
   -d "{
@@ -164,6 +192,19 @@ curl -X POST http://localhost:8000/v1/analyze-creative \
       \"You are Sarah, a 35-year-old marketing manager earning \$85k/year in Seattle. You value quality and sustainability.\",
       \"You are Mike, a 28-year-old software engineer earning \$110k/year in San Francisco. You prioritize convenience.\"
     ]
+  }"
+
+# Analyze a video
+VIDEO_B64=$(base64 -i ad.mp4)
+
+curl -X POST http://localhost:8000/v1/analyze-creative \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"creative_base64\": \"$VIDEO_B64\",
+    \"personas\": [
+      \"You are Sarah, a 35-year-old marketing manager earning \$85k/year in Seattle.\"
+    ],
+    \"mime_type\": \"video/mp4\"
   }"
 ```
 

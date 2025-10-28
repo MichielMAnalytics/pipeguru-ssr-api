@@ -39,13 +39,15 @@ class LLMClient:
         self,
         ad_image_base64: str,
         persona_description: str,
+        mime_type: str = "image/jpeg",
     ) -> str:
         """
-        Evaluate an ad image from the perspective of a synthetic persona.
+        Evaluate an ad creative (image or video) from the perspective of a synthetic persona.
 
         Args:
-            ad_image_base64: Base64-encoded image data
+            ad_image_base64: Base64-encoded image or video data
             persona_description: Description of the synthetic persona
+            mime_type: MIME type of the creative (e.g., 'image/jpeg', 'video/mp4')
 
         Returns:
             str: Natural language response from the persona's perspective (qualitative feedback only)
@@ -54,15 +56,20 @@ class LLMClient:
             The LLM is NOT shown the reference scale. It provides natural language feedback,
             which is then independently converted to quantitative scores using SSR methodology.
         """
+        # Determine media type for contextual prompting
+        is_video = mime_type.startswith("video/")
+        media_label = "video advertisement" if is_video else "advertisement"
+        media_context = "[VIDEO SHOWN ABOVE]" if is_video else "[IMAGE SHOWN ABOVE]"
+
         system_prompt = """You are roleplaying as a specific customer persona.
 You will see an advertisement and respond naturally from that persona's perspective,
 considering their demographics, values, preferences, and purchasing behavior."""
 
         user_prompt = f"""{persona_description}
 
-You're scrolling through social media and see the following advertisement:
+You're scrolling through social media and see the following {media_label}:
 
-[IMAGE SHOWN ABOVE]
+{media_context}
 
 Consider:
 1. Does this ad catch your attention?
@@ -86,7 +93,7 @@ IMPORTANT: Do NOT state a numeric rating or score. Just describe your thoughts a
             contents = [
                 types.Part(
                     inline_data=types.Blob(
-                        mime_type="image/jpeg",
+                        mime_type=mime_type,
                         data=image_bytes
                     )
                 ),
@@ -162,6 +169,68 @@ IMPORTANT: Do NOT state a numeric rating or score. Just describe your thoughts a
 
         except Exception as e:
             raise RuntimeError(f"Error generating text with Gemini: {str(e)}")
+
+    async def generate_qualitative_summary(
+        self,
+        persona_feedbacks: list[str],
+        average_score: float,
+        purchase_intent: float,
+    ) -> str:
+        """
+        Generate a concise qualitative summary from all persona feedback.
+
+        This is a single LLM call that synthesizes all persona responses
+        into a 2-3 sentence summary highlighting common themes.
+
+        Args:
+            persona_feedbacks: List of qualitative feedback from all personas
+            average_score: Average score across personas (1-5)
+            purchase_intent: Predicted purchase intent (0-1)
+
+        Returns:
+            str: Concise summary (2-3 sentences)
+        """
+        # Truncate individual feedbacks to save tokens (keep first 150 chars each)
+        truncated_feedbacks = [fb[:150] + "..." if len(fb) > 150 else fb for fb in persona_feedbacks]
+
+        # Limit to max 20 samples for efficiency if there are many personas
+        if len(truncated_feedbacks) > 20:
+            # Sample evenly across the list
+            step = len(truncated_feedbacks) // 20
+            truncated_feedbacks = [truncated_feedbacks[i] for i in range(0, len(truncated_feedbacks), step)][:20]
+
+        # Join with numbering for clarity
+        feedbacks_text = "\n".join(f"{i+1}. {fb}" for i, fb in enumerate(truncated_feedbacks))
+
+        prompt = f"""You are analyzing customer feedback for an advertisement.
+
+Below are {len(persona_feedbacks)} persona responses (sample shown):
+
+{feedbacks_text}
+
+Quantitative metrics:
+- Average score: {average_score:.1f}/5
+- Purchase intent: {purchase_intent:.1%}
+
+Write a 2-3 sentence summary that captures:
+1. Common themes (what most personas agree on)
+2. Key strengths (what works well)
+3. Main concerns or weaknesses (if any)
+
+Be concise and actionable. Focus on patterns, not individual opinions.
+
+Summary:"""
+
+        try:
+            response_text = await self.generate_text(prompt)
+            # Clean up the response (remove any leading "Summary:" prefix)
+            summary = response_text.strip()
+            if summary.lower().startswith("summary:"):
+                summary = summary[8:].strip()
+            return summary
+        except Exception as e:
+            # Fallback to a simple summary if LLM fails
+            return f"Analysis based on {len(persona_feedbacks)} personas. Average score: {average_score:.1f}/5. Purchase intent: {purchase_intent:.1%}."
 
     async def test_connection(self) -> bool:
         """

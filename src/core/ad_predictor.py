@@ -108,19 +108,21 @@ class AdPredictor:
         temperature: float = 1.0,
         epsilon: float = 0.01,
         use_multiple_reference_sets: bool = True,
+        mime_type: str | None = None,
     ) -> dict:
         """
-        Analyze creative with specific personas.
+        Analyze creative (image or video) with specific personas.
 
         Returns qualitative + quantitative feedback per persona, plus aggregates.
 
         Args:
-            creative_base64: Base64-encoded ad image
+            creative_base64: Base64-encoded ad creative (image or video)
             personas: List of persona descriptions
             reference_sentences: Reference sentences for Likert scale
             temperature: SSR temperature parameter
             epsilon: SSR epsilon parameter
             use_multiple_reference_sets: Use 6 reference sets and average (recommended)
+            mime_type: Optional MIME type (auto-detected if not provided)
 
         Returns:
             dict: {
@@ -129,11 +131,21 @@ class AdPredictor:
                 "metadata": {...}
             }
         """
+        # Auto-detect MIME type if not provided
+        if mime_type is None:
+            from src.utils.mime_detector import detect_mime_type_from_base64
+            mime_type, media_category = detect_mime_type_from_base64(creative_base64)
+            print(f"[AdPredictor] Auto-detected MIME type: {mime_type} ({media_category})")
+        else:
+            from src.utils.mime_detector import validate_mime_type
+            mime_type, media_category = validate_mime_type(mime_type)
+            print(f"[AdPredictor] Using provided MIME type: {mime_type} ({media_category})")
         # Step 1: Get LLM evaluations (in parallel for speed)
         # Note: We do NOT pass reference_context to LLM to avoid anchoring bias
         llm_responses = await self._get_llm_evaluations(
             ad_image_base64=creative_base64,
             personas=personas,
+            mime_type=mime_type,
         )
 
         # Step 2: Convert to PMFs using SSR
@@ -168,11 +180,20 @@ class AdPredictor:
         purchase_intent = self._calculate_purchase_intent(aggregate_pmf)
         persona_agreement = self._calculate_persona_agreement(pmfs)
 
+        # Step 4.5: Generate qualitative summary (single LLM call)
+        print(f"[AdPredictor] Generating qualitative summary...")
+        qualitative_summary = await self.llm_client.generate_qualitative_summary(
+            persona_feedbacks=llm_responses,
+            average_score=avg_score,
+            purchase_intent=purchase_intent,
+        )
+
         aggregate = {
             "average_score": round(avg_score, 2),
             "predicted_purchase_intent": round(purchase_intent, 4),
             "pmf_aggregate": [round(float(p), 4) for p in aggregate_pmf],
             "persona_agreement": round(persona_agreement, 4),
+            "qualitative_summary": qualitative_summary,
         }
 
         # Step 5: Metadata
@@ -180,6 +201,8 @@ class AdPredictor:
             "num_personas": len(personas),
             "llm_calls": len(personas),
             "llm_model": "gemini-2.5-flash",
+            "media_type": media_category,
+            "mime_type": mime_type,
         }
 
         return {
@@ -189,7 +212,7 @@ class AdPredictor:
         }
 
     async def _get_llm_evaluations(
-        self, ad_image_base64: str, personas: List[str]
+        self, ad_image_base64: str, personas: List[str], mime_type: str
     ) -> List[str]:
         """
         Get LLM evaluations for all personas with rate limiting.
@@ -212,6 +235,7 @@ class AdPredictor:
                 return await self.llm_client.evaluate_ad_with_persona(
                     ad_image_base64=ad_image_base64,
                     persona_description=persona,
+                    mime_type=mime_type,
                 )
 
         tasks = [eval_with_limit(persona) for persona in personas]
