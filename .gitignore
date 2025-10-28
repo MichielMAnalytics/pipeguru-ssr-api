@@ -74,3 +74,5 @@ default_embeddings/*.npy
 
 # Test results
 test_results_*.json
+
+.env.production

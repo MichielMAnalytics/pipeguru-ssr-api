@@ -1,0 +1,100 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Environment files (keep .env.production, exclude others)
+.env
+.env.local
+.env.development
+.env.test
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+tests/
+test_*.py
+test_*.json
+
+# macOS
+.DS_Store
+
+# Docker
+.docker/
+Dockerfile
+.dockerignore
+
+# Logs
+*.log
+
+# Git
+.git
+.gitignore
+.gitattributes
+
+# CI/CD
+.github/
+
+# Documentation
+README.md
+CHANGELOG.md
+LICENSE
+*.md
+
+# Scripts (development only)
+scripts/
+
+# Data files (development/test data)
+data/
+results/
+*.pdf
+
+# Research papers
+2510.08338v2.pdf
+
+# Third-party repos
+semantic-similarity-rating/
+
+# Keep manifest but ignore large .npy embedding files if they exist
+# (they should be generated at runtime or kept minimal)
+default_embeddings/*.npy
+
+# Deployment script (not needed in container)
+deploy.sh
+
+# Test request files
+test_request.json
+test_video_support.py
