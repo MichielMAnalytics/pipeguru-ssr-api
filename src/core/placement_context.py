@@ -4,12 +4,19 @@ from typing import Dict, Literal
 
 # Valid placement options
 PlacementType = Literal[
+    # Generic platforms
+    "instagram",
+    "tiktok",
+    "google",
+    # Instagram specific
     "instagram_feed",
     "instagram_stories",
     "instagram_reels",
     "instagram_explore",
+    # TikTok specific
     "tiktok_fyp",
     "tiktok_following",
+    # Google specific
     "google_search",
     "google_display",
     "google_youtube",
@@ -18,6 +25,11 @@ PlacementType = Literal[
 
 # Mapping of placement to user context description
 PLACEMENT_CONTEXTS: Dict[str, str] = {
+    # Generic platform contexts (when specific placement not specified)
+    "instagram": "You're browsing Instagram.",
+    "tiktok": "You're watching TikTok.",
+    "google": "You're using Google.",
+
     # Instagram placements
     "instagram_feed": "You're scrolling through your Instagram feed, casually browsing posts from friends and accounts you follow.",
     "instagram_stories": "You're tapping through Instagram Stories, quickly viewing short-lived content from people you follow.",
@@ -44,17 +56,20 @@ def get_placement_context(placement: str | None) -> str:
     Get the user context description for a given ad placement.
 
     Args:
-        placement: Ad placement identifier (e.g., "instagram_feed", "tiktok_fyp")
+        placement: Ad placement identifier (e.g., "instagram", "instagram_feed", "tiktok_fyp")
 
     Returns:
         User context description string
 
     Example:
+        >>> get_placement_context("instagram")
+        "You're browsing Instagram."
+
         >>> get_placement_context("tiktok_fyp")
         "You're scrolling through TikTok's For You Page, watching short videos curated for you."
 
         >>> get_placement_context(None)
-        "You're browsing online and see the following advertisement:"
+        "You're scrolling through social media."
     """
     if placement is None:
         return DEFAULT_CONTEXT
@@ -73,6 +88,9 @@ def validate_placement(placement: str) -> bool:
         True if valid, False otherwise
 
     Example:
+        >>> validate_placement("instagram")
+        True
+
         >>> validate_placement("instagram_feed")
         True
 

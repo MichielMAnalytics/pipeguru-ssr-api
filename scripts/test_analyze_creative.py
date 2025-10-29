@@ -35,7 +35,7 @@ TEST_BRAND_FAMILIARITY = True
 DISTRIBUTION_TYPE = 'custom'  # Use 'custom' to test all 5 levels with 5 personas
 
 # Ad placement testing (set to None to skip)
-TEST_AD_PLACEMENT = "instagram_feed"  # Options: instagram_feed, instagram_stories, instagram_reels, tiktok_fyp, google_search, google_youtube, etc.
+TEST_AD_PLACEMENT = "instagram"  # Options: Generic (instagram, tiktok, google) or Specific (instagram_feed, instagram_stories, tiktok_fyp, google_search, etc.)
 
 # Upfront brand context for testing
 UPFRONT_BRAND_CONTEXT = """Upfront is a Dutch sports nutrition company founded in January 2020 by three childhood friends: Mark de Boer, Harro Schwencke, and Nick Schijvens. The brand's mission is to establish a new standard for sports nutrition in the Netherlands, with transparency and honesty at its core.

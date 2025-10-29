@@ -76,8 +76,11 @@ class AnalyzeCreativeRequest(BaseModel):
     # Ad placement context (optional)
     ad_placement: Optional[str] = Field(
         None,
-        description="Optional ad placement context affecting user behavior and mindset. Specifies where the user encounters the ad.",
+        description="Optional ad placement context affecting user behavior and mindset. Specifies where the user encounters the ad. Use generic platforms (instagram, tiktok, google) or specific placements (instagram_feed, tiktok_fyp, etc.).",
         examples=[
+            "instagram",
+            "tiktok",
+            "google",
             "instagram_feed",
             "instagram_stories",
             "instagram_reels",
@@ -115,7 +118,8 @@ class AnalyzeCreativeRequest(BaseModel):
         if self.ad_placement is not None and not validate_placement(self.ad_placement):
             raise ValueError(
                 f"Invalid ad_placement: '{self.ad_placement}'. "
-                "Valid options: instagram_feed, instagram_stories, instagram_reels, instagram_explore, "
+                "Valid options: instagram, tiktok, google (generic), or specific placements: "
+                "instagram_feed, instagram_stories, instagram_reels, instagram_explore, "
                 "tiktok_fyp, tiktok_following, google_search, google_display, google_youtube, google_shopping"
             )
 
@@ -259,22 +263,6 @@ async def analyze_creative(
     Returns:
         AnalyzeCreativeResponse with per-persona and aggregate results
 
-    Ad Placement (Optional):
-        Specify where users encounter the ad to adjust for platform-specific behavior.
-
-        Parameter:
-        - ad_placement: Platform and placement context (e.g., "instagram_feed", "tiktok_fyp", "google_search")
-
-        Supported Placements:
-        Instagram: instagram_feed, instagram_stories, instagram_reels, instagram_explore
-        TikTok: tiktok_fyp, tiktok_following
-        Google: google_search, google_display, google_youtube, google_shopping
-
-        Example Contexts:
-        - instagram_feed: "You're scrolling through your Instagram feed..."
-        - tiktok_fyp: "You're scrolling through TikTok's For You Page..."
-        - google_search: "You just searched on Google and are reviewing results..."
-
     Brand Familiarity (Optional):
         Test how ad performance varies based on consumers' prior brand knowledge.
 
@@ -297,6 +285,28 @@ async def analyze_creative(
         - established_brand: 10% / 20% / 40% / 20% / 10%
         - popular_brand: 5% / 15% / 30% / 35% / 15%
         - cult_brand: 50% / 20% / 10% / 10% / 10%
+
+    Ad Placement (Optional):
+        Specify where users encounter the ad to adjust for platform-specific behavior.
+
+        Parameter:
+        - ad_placement: Generic platform or specific placement (e.g., "instagram", "instagram_feed", "tiktok_fyp")
+
+        Generic Platforms (when placement not important):
+        - instagram: Generic Instagram browsing
+        - tiktok: Generic TikTok watching
+        - google: Generic Google usage
+
+        Specific Placements (for placement-level precision):
+        Instagram: instagram_feed, instagram_stories, instagram_reels, instagram_explore
+        TikTok: tiktok_fyp, tiktok_following
+        Google: google_search, google_display, google_youtube, google_shopping
+
+        Example Contexts:
+        - instagram: "You're browsing Instagram."
+        - instagram_feed: "You're scrolling through your Instagram feed..."
+        - tiktok_fyp: "You're scrolling through TikTok's For You Page..."
+        - google_search: "You just searched on Google and are reviewing results..."
 
     Examples:
         ```python
@@ -362,7 +372,7 @@ async def analyze_creative(
             }
         )
 
-        # Example 4: With ad placement context (Instagram feed)
+        # Example 4: Generic platform placement (Instagram)
         response = requests.post(
             "http://localhost:8000/v1/analyze-creative",
             json={
@@ -371,17 +381,17 @@ async def analyze_creative(
                     "You are Sarah, a 25-year-old influencer...",
                     "You are Mike, a 30-year-old photographer..."
                 ],
-                "ad_placement": "instagram_feed"  # Context: scrolling Instagram feed
+                "ad_placement": "instagram"  # Generic: "You're browsing Instagram."
             }
         )
 
-        # Example 5: TikTok placement (affects user mindset)
+        # Example 5: Specific placement (TikTok FYP - more precise)
         response = requests.post(
             "http://localhost:8000/v1/analyze-creative",
             json={
                 "creative_base64": creative_b64,
                 "personas": ["You are Gen Z user..."],
-                "ad_placement": "tiktok_fyp"  # Context: watching TikTok For You Page
+                "ad_placement": "tiktok_fyp"  # Specific: "You're scrolling through TikTok's For You Page..."
             }
         )
 
