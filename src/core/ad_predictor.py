@@ -112,6 +112,7 @@ class AdPredictor:
         brand_context: str | None = None,
         brand_familiarity_distribution: dict | str | None = None,
         brand_familiarity_seed: int | None = None,
+        ad_placement: str | None = None,
     ) -> dict:
         """
         Analyze creative (image or video) with specific personas.
@@ -129,6 +130,7 @@ class AdPredictor:
             brand_context: Optional brand context/background information
             brand_familiarity_distribution: Optional distribution (preset name or custom dict)
             brand_familiarity_seed: Optional random seed for reproducibility
+            ad_placement: Optional ad placement context (e.g., 'instagram_feed', 'tiktok_fyp')
 
         Returns:
             dict: {
@@ -202,6 +204,7 @@ class AdPredictor:
             personas=personas,
             mime_type=mime_type,
             brand_familiarity_instructions=brand_familiarity_instructions,
+            ad_placement=ad_placement,
         )
 
         # Step 2: Convert to PMFs using SSR
@@ -307,6 +310,7 @@ class AdPredictor:
         personas: List[str],
         mime_type: str,
         brand_familiarity_instructions: List[str] | None = None,
+        ad_placement: str | None = None,
     ) -> List[str]:
         """
         Get LLM evaluations for all personas with rate limiting.
@@ -331,6 +335,7 @@ class AdPredictor:
                     persona_description=persona,
                     mime_type=mime_type,
                     brand_familiarity_instruction=brand_instruction,
+                    ad_placement=ad_placement,
                 )
 
         # Pair each persona with its brand familiarity instruction (if any)

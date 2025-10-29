@@ -7,6 +7,8 @@ from typing import Optional
 from google import genai
 from google.genai import types
 
+from src.core.placement_context import get_placement_context
+
 
 class LLMClient:
     """Client for interacting with Google Gemini Vision API."""
@@ -41,6 +43,7 @@ class LLMClient:
         persona_description: str,
         mime_type: str = "image/jpeg",
         brand_familiarity_instruction: Optional[str] = None,
+        ad_placement: Optional[str] = None,
     ) -> str:
         """
         Evaluate an ad creative (image or video) from the perspective of a synthetic persona.
@@ -50,6 +53,7 @@ class LLMClient:
             persona_description: Description of the synthetic persona
             mime_type: MIME type of the creative (e.g., 'image/jpeg', 'video/mp4')
             brand_familiarity_instruction: Optional instruction about brand familiarity level
+            ad_placement: Optional ad placement context (e.g., 'instagram_feed', 'tiktok_fyp')
 
         Returns:
             str: Natural language response from the persona's perspective (qualitative feedback only)
@@ -78,8 +82,10 @@ considering their demographics, values, preferences, and purchasing behavior."""
         # Add persona description
         user_prompt_parts.append(f"{persona_description}\n")
 
-        # Add scenario
-        user_prompt_parts.append(f"You're scrolling through social media and see the following {media_label}:")
+        # Add scenario with placement context
+        placement_context = get_placement_context(ad_placement)
+        user_prompt_parts.append(placement_context)
+        user_prompt_parts.append(f" You see the following {media_label}:")
 
         user_prompt = "".join(user_prompt_parts)
 

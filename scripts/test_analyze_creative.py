@@ -34,6 +34,9 @@ TEST_BRAND_FAMILIARITY = True
 # Distribution type: 'uniform', 'emerging_brand', or 'custom'
 DISTRIBUTION_TYPE = 'custom'  # Use 'custom' to test all 5 levels with 5 personas
 
+# Ad placement testing (set to None to skip)
+TEST_AD_PLACEMENT = "instagram_feed"  # Options: instagram_feed, instagram_stories, instagram_reels, tiktok_fyp, google_search, google_youtube, etc.
+
 # Upfront brand context for testing
 UPFRONT_BRAND_CONTEXT = """Upfront is a Dutch sports nutrition company founded in January 2020 by three childhood friends: Mark de Boer, Harro Schwencke, and Nick Schijvens. The brand's mission is to establish a new standard for sports nutrition in the Netherlands, with transparency and honesty at its core.
 
@@ -101,6 +104,7 @@ async def analyze_creative(
     brand_context: str | None = None,
     brand_familiarity_distribution: dict | str | None = None,
     brand_familiarity_seed: int | None = None,
+    ad_placement: str | None = None,
 ) -> dict:
     """
     Call the /v1/analyze-creative endpoint.
@@ -111,6 +115,7 @@ async def analyze_creative(
         brand_context: Optional brand context
         brand_familiarity_distribution: Optional distribution (preset or custom)
         brand_familiarity_seed: Optional seed for reproducibility
+        ad_placement: Optional ad placement context
 
     Returns:
         API response dict
@@ -127,6 +132,8 @@ async def analyze_creative(
         payload["brand_familiarity_distribution"] = brand_familiarity_distribution
     if brand_familiarity_seed is not None:
         payload["brand_familiarity_seed"] = brand_familiarity_seed
+    if ad_placement:
+        payload["ad_placement"] = ad_placement
 
     headers = {}
     if API_KEY:
@@ -234,12 +241,23 @@ async def main():
         print("Brand familiarity testing: DISABLED")
         print()
 
+    # Ad placement configuration
+    if TEST_AD_PLACEMENT:
+        print("=" * 80)
+        print("AD PLACEMENT CONFIGURATION")
+        print("=" * 80)
+        print()
+        print(f"✓ Ad placement testing ENABLED: {TEST_AD_PLACEMENT}")
+        print()
+
     # Call API with timing
     print("=" * 80)
     print("API CALL")
     print("=" * 80)
     print()
     print(f"Calling /v1/analyze-creative endpoint with {NUM_PERSONAS} personas...")
+    if TEST_AD_PLACEMENT:
+        print(f"  Ad Placement: {TEST_AD_PLACEMENT}")
     print("(This may take 1-3 minutes depending on concurrency settings)")
     print()
 
@@ -250,6 +268,7 @@ async def main():
             creative_base64,
             personas,
             **brand_params,
+            ad_placement=TEST_AD_PLACEMENT,
         )
 
         end_time = time.time()

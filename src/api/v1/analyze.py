@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from src.core.ad_predictor import AdPredictor
 from src.core.auth import validate_api_key
 from src.core.llm_client import LLMClient
+from src.core.placement_context import validate_placement
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +73,20 @@ class AnalyzeCreativeRequest(BaseModel):
         description="Optional random seed for reproducible familiarity assignment. Only used with brand_familiarity_distribution.",
     )
 
+    # Ad placement context (optional)
+    ad_placement: Optional[str] = Field(
+        None,
+        description="Optional ad placement context affecting user behavior and mindset. Specifies where the user encounters the ad.",
+        examples=[
+            "instagram_feed",
+            "instagram_stories",
+            "instagram_reels",
+            "tiktok_fyp",
+            "google_search",
+            "google_youtube",
+        ],
+    )
+
     # SSR parameters (optional, use defaults)
     reference_sentences: List[str] = Field(
         default=[
@@ -93,9 +108,16 @@ class AnalyzeCreativeRequest(BaseModel):
     )
 
     def model_post_init(self, __context):
-        """Validate brand familiarity parameters."""
+        """Validate brand familiarity and ad placement parameters."""
         if self.brand_familiarity_distribution is not None and not self.brand_context:
             raise ValueError("brand_familiarity_distribution requires brand_context to be provided")
+
+        if self.ad_placement is not None and not validate_placement(self.ad_placement):
+            raise ValueError(
+                f"Invalid ad_placement: '{self.ad_placement}'. "
+                "Valid options: instagram_feed, instagram_stories, instagram_reels, instagram_explore, "
+                "tiktok_fyp, tiktok_following, google_search, google_display, google_youtube, google_shopping"
+            )
 
     model_config = {
         "json_schema_extra": {
@@ -237,6 +259,22 @@ async def analyze_creative(
     Returns:
         AnalyzeCreativeResponse with per-persona and aggregate results
 
+    Ad Placement (Optional):
+        Specify where users encounter the ad to adjust for platform-specific behavior.
+
+        Parameter:
+        - ad_placement: Platform and placement context (e.g., "instagram_feed", "tiktok_fyp", "google_search")
+
+        Supported Placements:
+        Instagram: instagram_feed, instagram_stories, instagram_reels, instagram_explore
+        TikTok: tiktok_fyp, tiktok_following
+        Google: google_search, google_display, google_youtube, google_shopping
+
+        Example Contexts:
+        - instagram_feed: "You're scrolling through your Instagram feed..."
+        - tiktok_fyp: "You're scrolling through TikTok's For You Page..."
+        - google_search: "You just searched on Google and are reviewing results..."
+
     Brand Familiarity (Optional):
         Test how ad performance varies based on consumers' prior brand knowledge.
 
@@ -324,7 +362,40 @@ async def analyze_creative(
             }
         )
 
-        # Example 4: Video analysis
+        # Example 4: With ad placement context (Instagram feed)
+        response = requests.post(
+            "http://localhost:8000/v1/analyze-creative",
+            json={
+                "creative_base64": creative_b64,
+                "personas": [
+                    "You are Sarah, a 25-year-old influencer...",
+                    "You are Mike, a 30-year-old photographer..."
+                ],
+                "ad_placement": "instagram_feed"  # Context: scrolling Instagram feed
+            }
+        )
+
+        # Example 5: TikTok placement (affects user mindset)
+        response = requests.post(
+            "http://localhost:8000/v1/analyze-creative",
+            json={
+                "creative_base64": creative_b64,
+                "personas": ["You are Gen Z user..."],
+                "ad_placement": "tiktok_fyp"  # Context: watching TikTok For You Page
+            }
+        )
+
+        # Example 6: Google Search (high intent)
+        response = requests.post(
+            "http://localhost:8000/v1/analyze-creative",
+            json={
+                "creative_base64": creative_b64,
+                "personas": ["You are searching for a solution..."],
+                "ad_placement": "google_search"  # Context: active search behavior
+            }
+        )
+
+        # Example 7: Video analysis
         with open("ad.mp4", "rb") as f:
             video_b64 = base64.b64encode(f.read()).decode()
 
@@ -364,6 +435,7 @@ async def analyze_creative(
             brand_context=request.brand_context,
             brand_familiarity_distribution=request.brand_familiarity_distribution,
             brand_familiarity_seed=request.brand_familiarity_seed,
+            ad_placement=request.ad_placement,
         )
 
         # Add processing time
