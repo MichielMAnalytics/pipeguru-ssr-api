@@ -58,7 +58,12 @@ Analyze an ad creative (image or video) with specific personas. Returns qualitat
     "You are Sarah, a 35-year-old marketing manager earning $85k/year...",
     "You are Mike, a 28-year-old software engineer earning $110k/year..."
   ],
-  "mime_type": "video/mp4"   # Optional - auto-detects if not provided
+  "mime_type": "video/mp4",  # Optional - auto-detects if not provided
+
+  # Optional: Brand familiarity parameters
+  "brand_context": "...",    # Comprehensive brand information
+  "brand_familiarity_distribution": "emerging_brand",  # Preset or custom dict
+  "brand_familiarity_seed": None  # None = deterministic, int = random with seed
 }
 ```
 
@@ -73,7 +78,8 @@ Analyze an ad creative (image or video) with specific personas. Returns qualitat
       "quantitative_score": 4,
       "expected_value": 3.8,
       "pmf": [0.05, 0.10, 0.15, 0.40, 0.30],
-      "rating_certainty": 0.85
+      "rating_certainty": 0.85,
+      "brand_familiarity_level": 3  # Only present if brand familiarity enabled
     }
   ],
   "aggregate": {
@@ -88,16 +94,215 @@ Analyze an ad creative (image or video) with specific personas. Returns qualitat
     "llm_calls": 11,
     "llm_model": "gemini-2.5-flash",
     "media_type": "image",
-    "mime_type": "image/jpeg"
+    "mime_type": "image/jpeg",
+    # Brand familiarity metadata (only present if enabled)
+    "brand_familiarity": {
+      "enabled": True,
+      "distribution_used": "emerging_brand",
+      "seed": None,
+      "level_distribution": {
+        "level_1": {"count": 4, "percentage": 40, "label": "Never heard"},
+        "level_2": {"count": 3, "percentage": 30, "label": "Vaguely aware"},
+        "level_3": {"count": 2, "percentage": 20, "label": "Familiar"},
+        "level_4": {"count": 1, "percentage": 8, "label": "Very familiar"},
+        "level_5": {"count": 0, "percentage": 2, "label": "Brand advocate"}
+      }
+    }
   }
 }
 ```
 
-**Processing time:**
-- Images: ~10-30 seconds depending on number of personas
-- Videos: ~15-45 seconds (videos require more processing)
-
 **Note:** For videos, keep file size under 10MB for optimal performance.
+
+### Brand Familiarity Feature
+
+The brand familiarity feature allows you to test how ad performance varies based on consumers' prior knowledge of your brand. This is critical for understanding whether your creative works for first-time viewers vs. brand loyalists.
+
+#### Overview
+
+When analyzing ads, you can optionally specify:
+1. **Brand context** - Comprehensive information about your brand (identity, values, products, etc.)
+2. **Brand familiarity distribution** - How familiar your target personas are with the brand
+3. **Assignment mode** - Deterministic (exact percentages) or random (with seed for reproducibility)
+
+The system then:
+- Assigns familiarity levels (1-5) to each persona based on the distribution
+- Generates appropriate context instructions per level to prevent data leakage
+- Evaluates the ad with each persona's knowledge level
+- Returns familiarity levels and distribution statistics in the response
+
+#### Familiarity Levels
+
+| Level | Label | Description |
+|-------|-------|-------------|
+| 1 | Never heard | Zero knowledge, complete first-time exposure |
+| 2 | Vaguely aware | Seen once or twice, superficial recognition only |
+| 3 | Familiar | Knows what they do, general understanding of positioning |
+| 4 | Very familiar | Has engaged with brand, purchased before, clear opinions |
+| 5 | Brand advocate | Deeply loyal, extensive knowledge, emotional connection |
+
+#### Preset Distributions
+
+| Preset | Description | Distribution |
+|--------|-------------|--------------|
+| `uniform` | Equal distribution across all levels | 20% / 20% / 20% / 20% / 20% |
+| `new_brand` | Brand just launched | 70% / 20% / 8% / 2% / 0% |
+| `emerging_brand` | Growing brand awareness | 40% / 30% / 20% / 8% / 2% |
+| `established_brand` | Well-known in market | 10% / 20% / 40% / 20% / 10% |
+| `popular_brand` | High brand recognition | 5% / 15% / 30% / 35% / 15% |
+| `cult_brand` | Niche with passionate fans | 50% / 20% / 10% / 10% / 10% |
+
+#### Request Parameters
+
+```python
+{
+  # Required for brand familiarity
+  "brand_context": str,  # Max 5000 chars - comprehensive brand information
+
+  # Optional - controls distribution of familiarity levels
+  "brand_familiarity_distribution": str | dict,  # Preset name or custom dict
+
+  # Optional - controls assignment mode
+  "brand_familiarity_seed": int | None  # None = deterministic, int = random
+}
+```
+
+**Parameter Details:**
+
+- **brand_context** (required if using brand familiarity):
+  - Comprehensive brand information including identity, values, products, differentiators, target audience
+  - Used by LLM to generate appropriate context per familiarity level
+  - Example: See `scripts/test_analyze_creative.py` for full Upfront brand context
+
+- **brand_familiarity_distribution** (optional, default: uniform):
+  - **Preset string**: One of `uniform`, `new_brand`, `emerging_brand`, `established_brand`, `popular_brand`, `cult_brand`
+  - **Custom dict**: `{1: 0.4, 2: 0.3, 3: 0.2, 4: 0.08, 5: 0.02}` (must sum to 1.0)
+
+- **brand_familiarity_seed** (optional, default: None):
+  - **None (default)**: Deterministic mode - assigns exact percentages (e.g., 5 personas with 20% each = exactly [1, 2, 3, 4, 5])
+  - **Integer**: Random mode with seed for reproducibility (e.g., seed=42 always gives same random assignment)
+
+#### Example Usage
+
+**Example 1: Emerging Brand with Deterministic Assignment**
+
+```python
+import requests
+import base64
+
+with open("ad.jpg", "rb") as f:
+    creative_b64 = base64.b64encode(f.read()).decode()
+
+brand_context = """Upfront is a Dutch sports nutrition company founded in January 2020.
+The brand's mission is to establish a new standard for sports nutrition with transparency
+and honesty at its core. Their primary slogan is "Wat oprecht is wint" (What is genuine wins).
+
+Key Differentiators:
+- Radical Transparency: All ingredients displayed on packaging front
+- No artificial flavors, colors, or sweeteners
+- Minimalist design that stands out by being deliberately simple
+
+Products: protein powders, bars, shakes, electrolytes, energy gels
+Distribution: Direct-to-consumer online + 502 Albert Heijn stores
+Target: Health-conscious consumers, athletes, fitness enthusiasts"""
+
+personas = [
+    "You are Sarah, a 28-year-old fitness enthusiast...",
+    "You are Mike, a 35-year-old marathon runner...",
+    "You are Elena, a 31-year-old yoga instructor...",
+    "You are Jordan, a 26-year-old CrossFit athlete...",
+    "You are Alex, a 33-year-old triathlete..."
+]
+
+response = requests.post(
+    "http://localhost:8000/v1/analyze-creative",
+    json={
+        "creative_base64": creative_b64,
+        "personas": personas,
+        "brand_context": brand_context,
+        "brand_familiarity_distribution": "emerging_brand",
+        # No seed = deterministic (exact percentages)
+    }
+)
+
+result = response.json()
+
+# Check brand familiarity distribution
+print("Brand Familiarity Distribution:")
+for level_key, level_data in result["metadata"]["brand_familiarity"]["level_distribution"].items():
+    print(f"  {level_data['label']}: {level_data['count']} personas ({level_data['percentage']}%)")
+
+# Check individual persona familiarity levels
+for persona_result in result["persona_results"]:
+    print(f"Persona {persona_result['persona_id']}: Level {persona_result['brand_familiarity_level']}")
+```
+
+**Example 2: Custom Distribution with Random Assignment**
+
+```python
+# Test with 10 personas - custom distribution favoring low familiarity
+custom_distribution = {
+    1: 0.5,   # 50% never heard
+    2: 0.3,   # 30% vaguely aware
+    3: 0.15,  # 15% familiar
+    4: 0.04,  # 4% very familiar
+    5: 0.01   # 1% brand advocate
+}
+
+personas = [f"Persona {i}" for i in range(10)]
+
+response = requests.post(
+    "http://localhost:8000/v1/analyze-creative",
+    json={
+        "creative_base64": creative_b64,
+        "personas": personas,
+        "brand_context": brand_context,
+        "brand_familiarity_distribution": custom_distribution,
+        "brand_familiarity_seed": 42  # Reproducible random assignment
+    }
+)
+```
+
+**Example 3: Uniform Distribution (Test All Levels Equally)**
+
+```python
+# 5 personas with uniform distribution = exactly one at each level
+personas = [f"Persona {i}" for i in range(5)]
+
+response = requests.post(
+    "http://localhost:8000/v1/analyze-creative",
+    json={
+        "creative_base64": creative_b64,
+        "personas": personas,
+        "brand_context": brand_context,
+        "brand_familiarity_distribution": "uniform"
+        # No seed = deterministic = [1, 2, 3, 4, 5]
+    }
+)
+```
+
+#### Data Leakage Prevention
+
+The system prevents data leakage by filtering brand context based on familiarity level:
+
+- **Level 1**: No brand information provided (hardcoded)
+- **Level 2**: Only 1-2 surface-level facts (e.g., "seen at stores", "know they sell X")
+- **Level 3**: Basic brand identity, positioning (~20-30% of context)
+- **Level 4**: Detailed knowledge, personal experience (~60-70% of context)
+- **Level 5**: Full context, emotionally invested (100% of context)
+
+This ensures lower familiarity personas don't "leak" knowledge they wouldn't have in real life.
+
+#### Response Format Changes
+
+When brand familiarity is enabled:
+
+1. **Persona results** include `brand_familiarity_level` field (1-5)
+2. **Metadata** includes `brand_familiarity` object with:
+   - `enabled`: True
+   - `distribution_used`: Preset name or "custom"
+   - `seed`: Seed value or None
+   - `level_distribution`: Detailed breakdown of assignments per level
 
 ### Helper Endpoints
 

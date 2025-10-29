@@ -40,6 +40,7 @@ class LLMClient:
         ad_image_base64: str,
         persona_description: str,
         mime_type: str = "image/jpeg",
+        brand_familiarity_instruction: Optional[str] = None,
     ) -> str:
         """
         Evaluate an ad creative (image or video) from the perspective of a synthetic persona.
@@ -48,6 +49,7 @@ class LLMClient:
             ad_image_base64: Base64-encoded image or video data
             persona_description: Description of the synthetic persona
             mime_type: MIME type of the creative (e.g., 'image/jpeg', 'video/mp4')
+            brand_familiarity_instruction: Optional instruction about brand familiarity level
 
         Returns:
             str: Natural language response from the persona's perspective (qualitative feedback only)
@@ -65,9 +67,23 @@ class LLMClient:
 You will see an advertisement and respond naturally from that persona's perspective,
 considering their demographics, values, preferences, and purchasing behavior."""
 
-        user_prompt = f"""{persona_description}
+        # Build user prompt with optional brand familiarity context
+        user_prompt_parts = []
 
-You're scrolling through social media and see the following {media_label}:
+        # Add brand familiarity instruction first (if provided)
+        if brand_familiarity_instruction:
+            user_prompt_parts.append(brand_familiarity_instruction.strip())
+            user_prompt_parts.append("\n---\n")
+
+        # Add persona description
+        user_prompt_parts.append(f"{persona_description}\n")
+
+        # Add scenario
+        user_prompt_parts.append(f"You're scrolling through social media and see the following {media_label}:")
+
+        user_prompt = "".join(user_prompt_parts)
+
+        user_prompt += f"""
 
 {media_context}
 
@@ -81,9 +97,35 @@ Consider:
 
 Respond naturally and authentically from your perspective. Share your honest thoughts
 about whether you'd be interested in this product and why or why not. Be specific about
-what appeals to you or turns you off.
+what appeals to you or turns you off."""
 
-IMPORTANT: Do NOT state a numeric rating or score. Just describe your thoughts and feelings naturally."""
+        # Log the full prompt for debugging
+        debug_prompts = os.getenv("DEBUG_PROMPTS", "false").lower() == "true"
+
+        if brand_familiarity_instruction:
+            print(f"[LLM Client] ✓ Brand familiarity context included (length: {len(brand_familiarity_instruction)} chars)")
+
+            if debug_prompts:
+                print("\n" + "="*80)
+                print("FULL BRAND FAMILIARITY INSTRUCTION:")
+                print("="*80)
+                print(brand_familiarity_instruction)
+                print("="*80 + "\n")
+            else:
+                # Log first 300 chars of brand instruction to verify it's working
+                preview = brand_familiarity_instruction[:300].replace('\n', ' ')
+                print(f"[LLM Client]   Preview: {preview}...")
+        else:
+            print(f"[LLM Client] No brand familiarity context")
+
+        print(f"[LLM Client] User prompt length: {len(user_prompt)} chars")
+
+        if debug_prompts:
+            print("\n" + "="*80)
+            print("FULL USER PROMPT:")
+            print("="*80)
+            print(user_prompt)
+            print("="*80 + "\n")
 
         try:
             # Convert base64 to bytes for Gemini

@@ -109,6 +109,9 @@ class AdPredictor:
         epsilon: float = 0.01,
         use_multiple_reference_sets: bool = True,
         mime_type: str | None = None,
+        brand_context: str | None = None,
+        brand_familiarity_distribution: dict | str | None = None,
+        brand_familiarity_seed: int | None = None,
     ) -> dict:
         """
         Analyze creative (image or video) with specific personas.
@@ -123,6 +126,9 @@ class AdPredictor:
             epsilon: SSR epsilon parameter
             use_multiple_reference_sets: Use 6 reference sets and average (recommended)
             mime_type: Optional MIME type (auto-detected if not provided)
+            brand_context: Optional brand context/background information
+            brand_familiarity_distribution: Optional distribution (preset name or custom dict)
+            brand_familiarity_seed: Optional random seed for reproducibility
 
         Returns:
             dict: {
@@ -140,12 +146,62 @@ class AdPredictor:
             from src.utils.mime_detector import validate_mime_type
             mime_type, media_category = validate_mime_type(mime_type)
             print(f"[AdPredictor] Using provided MIME type: {mime_type} ({media_category})")
+
+        # Step 0: Generate brand familiarity instructions per persona (if applicable)
+        brand_familiarity_instructions = None
+        if brand_context and brand_familiarity_distribution:
+            from src.core.brand_familiarity import (
+                BrandFamiliarityDistribution,
+                generate_brand_familiarity_instructions,
+            )
+
+            # Parse distribution (could be preset name or custom dict)
+            if isinstance(brand_familiarity_distribution, str):
+                # It's a preset name
+                print(f"[AdPredictor] Using brand familiarity preset: {brand_familiarity_distribution}")
+                distribution = BrandFamiliarityDistribution.get_preset(brand_familiarity_distribution)
+            else:
+                # It's a custom distribution - convert string keys to ints
+                print(f"[AdPredictor] Using custom brand familiarity distribution")
+                distribution = {int(k): v for k, v in brand_familiarity_distribution.items()}
+
+            # Assign familiarity levels to each persona
+            # Use deterministic mode if seed is None (exact percentages)
+            # Use random mode if seed is provided (for reproducibility with variation)
+            familiarity_levels = BrandFamiliarityDistribution.assign_levels_to_personas(
+                num_personas=len(personas),
+                distribution=distribution,
+                seed=brand_familiarity_seed,
+                deterministic=(brand_familiarity_seed is None),
+            )
+
+            print(f"[AdPredictor] Brand familiarity levels assigned: {familiarity_levels}")
+
+            # Get unique levels that need to be generated
+            unique_levels = sorted(set(familiarity_levels))
+
+            # Generate ONLY the required familiarity level instructions in ONE LLM call
+            print(f"[AdPredictor] Generating brand familiarity contexts for levels {unique_levels} (1 LLM call)...")
+            instructions_by_level = await generate_brand_familiarity_instructions(
+                brand_context=brand_context,
+                required_levels=unique_levels,
+                llm_client=self.llm_client,
+            )
+
+            # Map each persona to their appropriate instruction
+            brand_familiarity_instructions = [
+                instructions_by_level.get(level, "")
+                for level in familiarity_levels
+            ]
+
+            print(f"[AdPredictor] ✓ Brand familiarity contexts generated and assigned")
+
         # Step 1: Get LLM evaluations (in parallel for speed)
-        # Note: We do NOT pass reference_context to LLM to avoid anchoring bias
         llm_responses = await self._get_llm_evaluations(
             ad_image_base64=creative_base64,
             personas=personas,
             mime_type=mime_type,
+            brand_familiarity_instructions=brand_familiarity_instructions,
         )
 
         # Step 2: Convert to PMFs using SSR
@@ -164,7 +220,7 @@ class AdPredictor:
             expected_val = sum((j + 1) * p for j, p in enumerate(pmf))
             rating_certainty = float(np.max(pmf))
 
-            persona_results.append({
+            result = {
                 "persona_id": i,
                 "persona_description": persona,  # FULL persona, not truncated
                 "qualitative_feedback": llm_resp,  # FULL response, not truncated!
@@ -172,7 +228,13 @@ class AdPredictor:
                 "expected_value": round(expected_val, 2),
                 "pmf": [round(float(p), 4) for p in pmf],
                 "rating_certainty": round(rating_certainty, 4),
-            })
+            }
+
+            # Add brand familiarity level if applicable
+            if brand_familiarity_instructions:
+                result["brand_familiarity_level"] = familiarity_levels[i - 1]
+
+            persona_results.append(result)
 
         # Step 4: Calculate aggregates
         aggregate_pmf = np.mean(pmfs, axis=0)
@@ -205,6 +267,34 @@ class AdPredictor:
             "mime_type": mime_type,
         }
 
+        # Add brand familiarity metadata if applicable
+        if brand_familiarity_instructions:
+            from collections import Counter
+            level_counts = Counter(familiarity_levels)
+            metadata["brand_familiarity"] = {
+                "enabled": True,
+                "distribution_used": brand_familiarity_distribution if isinstance(brand_familiarity_distribution, str) else "custom",
+                "seed": brand_familiarity_seed,
+                "level_distribution": {
+                    f"level_{level}": {
+                        "count": level_counts[level],
+                        "percentage": round(level_counts[level] / len(personas) * 100, 1),
+                        "label": {
+                            1: "Never heard",
+                            2: "Vaguely aware",
+                            3: "Familiar",
+                            4: "Very familiar",
+                            5: "Brand advocate"
+                        }[level]
+                    }
+                    for level in sorted(level_counts.keys())
+                }
+            }
+        else:
+            metadata["brand_familiarity"] = {
+                "enabled": False
+            }
+
         return {
             "persona_results": persona_results,
             "aggregate": aggregate,
@@ -212,7 +302,11 @@ class AdPredictor:
         }
 
     async def _get_llm_evaluations(
-        self, ad_image_base64: str, personas: List[str], mime_type: str
+        self,
+        ad_image_base64: str,
+        personas: List[str],
+        mime_type: str,
+        brand_familiarity_instructions: List[str] | None = None,
     ) -> List[str]:
         """
         Get LLM evaluations for all personas with rate limiting.
@@ -230,15 +324,24 @@ class AdPredictor:
 
         print(f"[AdPredictor] Processing {len(personas)} personas with max {self.max_concurrent_llm_calls} concurrent calls...")
 
-        async def eval_with_limit(persona):
+        async def eval_with_limit(persona, brand_instruction):
             async with semaphore:
                 return await self.llm_client.evaluate_ad_with_persona(
                     ad_image_base64=ad_image_base64,
                     persona_description=persona,
                     mime_type=mime_type,
+                    brand_familiarity_instruction=brand_instruction,
                 )
 
-        tasks = [eval_with_limit(persona) for persona in personas]
+        # Pair each persona with its brand familiarity instruction (if any)
+        if brand_familiarity_instructions:
+            tasks = [
+                eval_with_limit(persona, instruction)
+                for persona, instruction in zip(personas, brand_familiarity_instructions)
+            ]
+        else:
+            tasks = [eval_with_limit(persona, None) for persona in personas]
+
         responses = await asyncio.gather(*tasks)
         return responses
 

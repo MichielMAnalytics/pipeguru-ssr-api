@@ -2,7 +2,7 @@
 
 import logging
 import time
-from typing import Annotated, List, Optional
+from typing import Annotated, List, Optional, Union
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -49,6 +49,29 @@ class AnalyzeCreativeRequest(BaseModel):
         description="Optional MIME type of the creative (e.g., 'video/mp4', 'image/jpeg'). Auto-detected if not provided.",
     )
 
+    # Brand familiarity parameters (optional)
+    brand_context: Optional[str] = Field(
+        None,
+        description="Optional brand context/background information. Provides personas with brand knowledge based on familiarity level.",
+        max_length=5000,
+    )
+
+    brand_familiarity_distribution: Optional[Union[str, dict]] = Field(
+        None,
+        description="Optional distribution of brand familiarity levels across personas. Either a preset name (string) or custom distribution (dict mapping level to percentage). Requires brand_context.",
+        examples=[
+            "uniform",
+            "new_brand",
+            "established_brand",
+            {"1": 0.3, "2": 0.5, "3": 0.2}
+        ],
+    )
+
+    brand_familiarity_seed: Optional[int] = Field(
+        None,
+        description="Optional random seed for reproducible familiarity assignment. Only used with brand_familiarity_distribution.",
+    )
+
     # SSR parameters (optional, use defaults)
     reference_sentences: List[str] = Field(
         default=[
@@ -69,6 +92,11 @@ class AnalyzeCreativeRequest(BaseModel):
         description="Use 6 reference sets for stability (recommended)",
     )
 
+    def model_post_init(self, __context):
+        """Validate brand familiarity parameters."""
+        if self.brand_familiarity_distribution is not None and not self.brand_context:
+            raise ValueError("brand_familiarity_distribution requires brand_context to be provided")
+
     model_config = {
         "json_schema_extra": {
             "examples": [
@@ -86,6 +114,22 @@ class AnalyzeCreativeRequest(BaseModel):
                         "You are Sarah, a 35-year-old marketing manager earning $85k/year in Seattle.",
                     ],
                     "mime_type": "video/mp4",
+                },
+                {
+                    "creative_base64": "iVBORw0KGgoAAAANSUhEUgAA...",
+                    "personas": [
+                        "You are Sarah, a 35-year-old marketing manager...",
+                        "You are Mike, a 28-year-old software engineer...",
+                    ],
+                    "brand_context": "Upfront is a Dutch sports nutrition company founded in 2020...",
+                    "brand_familiarity_distribution": "emerging_brand",  # Preset
+                },
+                {
+                    "creative_base64": "iVBORw0KGgoAAAANSUhEUgAA...",
+                    "personas": ["You are Sarah...", "You are Mike..."],
+                    "brand_context": "Upfront is a Dutch sports nutrition company...",
+                    "brand_familiarity_distribution": {1: 0.3, 2: 0.5, 3: 0.2},  # Custom
+                    "brand_familiarity_seed": 42,  # For reproducibility
                 },
             ]
         }
@@ -115,6 +159,11 @@ class PersonaAnalysisResult(BaseModel):
     )
     rating_certainty: float = Field(
         ..., ge=0.0, le=1.0, description="Certainty of this rating (max probability in PMF) - measures decisiveness"
+    )
+
+    # Brand familiarity (optional)
+    brand_familiarity_level: Optional[int] = Field(
+        None, ge=1, le=5, description="Brand familiarity level assigned to this persona (1=Never heard, 5=Brand advocate)"
     )
 
 
@@ -188,12 +237,35 @@ async def analyze_creative(
     Returns:
         AnalyzeCreativeResponse with per-persona and aggregate results
 
+    Brand Familiarity (Optional):
+        Test how ad performance varies based on consumers' prior brand knowledge.
+
+        Parameters:
+        - brand_context: Comprehensive brand information (max 5000 chars)
+        - brand_familiarity_distribution: Preset (e.g., "emerging_brand") or custom dict
+        - brand_familiarity_seed: None (deterministic) or int (random with seed)
+
+        Familiarity Levels:
+        1. Never heard - Zero knowledge, first-time exposure
+        2. Vaguely aware - Seen once or twice, superficial recognition
+        3. Familiar - Knows what they do, general positioning
+        4. Very familiar - Engaged with brand, purchased before
+        5. Brand advocate - Deeply loyal, extensive knowledge
+
+        Preset Distributions:
+        - uniform: 20% / 20% / 20% / 20% / 20%
+        - new_brand: 70% / 20% / 8% / 2% / 0%
+        - emerging_brand: 40% / 30% / 20% / 8% / 2%
+        - established_brand: 10% / 20% / 40% / 20% / 10%
+        - popular_brand: 5% / 15% / 30% / 35% / 15%
+        - cult_brand: 50% / 20% / 10% / 10% / 10%
+
     Examples:
         ```python
         import requests
         import base64
 
-        # Analyze an image
+        # Example 1: Basic analysis (no brand familiarity)
         with open("ad.jpg", "rb") as f:
             creative_b64 = base64.b64encode(f.read()).decode()
 
@@ -212,7 +284,47 @@ async def analyze_creative(
         print(f"Average score: {result['aggregate']['average_score']}/5")
         print(f"Purchase intent: {result['aggregate']['predicted_purchase_intent']:.1%}")
 
-        # Analyze a video
+        # Example 2: With brand familiarity (emerging brand)
+        brand_context = \"\"\"Upfront is a Dutch sports nutrition company founded in 2020.
+        Mission: Establish new standard for sports nutrition with radical transparency.
+        Key differentiators: All ingredients on front, no artificial additives.
+        Products: Protein powders, bars, energy gels. Distribution: Online + retail.\"\"\"
+
+        response = requests.post(
+            "http://localhost:8000/v1/analyze-creative",
+            json={
+                "creative_base64": creative_b64,
+                "personas": [
+                    "You are Sarah, a 28-year-old fitness enthusiast...",
+                    "You are Mike, a 35-year-old marathon runner...",
+                    "You are Elena, a 31-year-old yoga instructor...",
+                    "You are Jordan, a 26-year-old CrossFit athlete...",
+                    "You are Alex, a 33-year-old triathlete..."
+                ],
+                "brand_context": brand_context,
+                "brand_familiarity_distribution": "emerging_brand",
+                # No seed = deterministic assignment
+            }
+        )
+
+        result = response.json()
+        # Check brand familiarity distribution
+        for persona in result["persona_results"]:
+            print(f"Persona {persona['persona_id']}: Level {persona['brand_familiarity_level']}")
+
+        # Example 3: Custom distribution with random seed
+        response = requests.post(
+            "http://localhost:8000/v1/analyze-creative",
+            json={
+                "creative_base64": creative_b64,
+                "personas": ["Persona 1", "Persona 2", "Persona 3"],
+                "brand_context": brand_context,
+                "brand_familiarity_distribution": {1: 0.5, 2: 0.3, 3: 0.2},
+                "brand_familiarity_seed": 42  # Reproducible random assignment
+            }
+        )
+
+        # Example 4: Video analysis
         with open("ad.mp4", "rb") as f:
             video_b64 = base64.b64encode(f.read()).decode()
 
@@ -225,10 +337,6 @@ async def analyze_creative(
             }
         )
         ```
-
-    Processing time:
-    - Images: ~10-30 seconds depending on number of personas
-    - Videos: ~15-45 seconds (videos require more processing)
 
     Note: For videos, consider keeping file size under 10MB for optimal performance.
     """
@@ -253,6 +361,9 @@ async def analyze_creative(
             epsilon=request.epsilon,
             use_multiple_reference_sets=request.use_multiple_reference_sets,
             mime_type=request.mime_type,
+            brand_context=request.brand_context,
+            brand_familiarity_distribution=request.brand_familiarity_distribution,
+            brand_familiarity_seed=request.brand_familiarity_seed,
         )
 
         # Add processing time
@@ -385,8 +496,6 @@ async def generate_personas(
         personas = response.json()["personas"]
         # Use these personas in analyze-creative
         ```
-
-    Processing time: ~2-5 seconds
     """
     start_time = time.time()
 
