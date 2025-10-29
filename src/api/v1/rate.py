@@ -5,13 +5,14 @@ from typing import List
 
 import numpy as np
 import polars as po
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from semantic_similarity_rating import ResponseRater
 
+from src.core.auth import validate_api_key
 from src.core.reference_statements import get_reference_sets
 from src.models.schemas import RateRequest, RateResponse, RatingResult
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(validate_api_key)])
 
 
 @router.post("/rate", response_model=RateResponse)

@@ -8,11 +8,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from src.core.ad_predictor import AdPredictor
+from src.core.auth import validate_api_key
 from src.core.llm_client import LLMClient
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(validate_api_key)])
 
 
 def get_ad_predictor() -> AdPredictor:
