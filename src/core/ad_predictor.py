@@ -43,8 +43,6 @@ class AdPredictor:
             max_concurrent_llm_calls = int(os.getenv("MAX_CONCURRENT_LLM_CALLS", "50"))
         self.max_concurrent_llm_calls = max_concurrent_llm_calls
 
-        print(f"[AdPredictor] Initialized with max {self.max_concurrent_llm_calls} concurrent LLM calls")
-
         # Cache for pre-computed reference embeddings
         self._reference_embeddings_cache: Dict[str, np.ndarray] = {}
         self._embeddings_dir = embeddings_dir
@@ -62,9 +60,6 @@ class AdPredictor:
         manifest_path = self._embeddings_dir / "manifest.json"
 
         if not manifest_path.exists():
-            print(f"[AdPredictor] Warning: No pre-computed embeddings found at {manifest_path}")
-            print(f"[AdPredictor] Run 'python scripts/generate_reference_embeddings.py' to generate them")
-            print(f"[AdPredictor] Falling back to runtime embedding generation (slower)")
             return
 
         # Load manifest
@@ -74,18 +69,12 @@ class AdPredictor:
         # Verify model matches
         model_name = self.embeddings.model
         if manifest["model"] != model_name:
-            print(f"[AdPredictor] Warning: Embedding model mismatch!")
-            print(f"  Expected: {model_name}")
-            print(f"  Found in cache: {manifest['model']}")
-            print(f"[AdPredictor] Falling back to runtime embedding generation")
             return
 
         # Load embeddings for each reference set
-        print(f"[AdPredictor] Loading {manifest['num_sets']} pre-computed reference embeddings...")
         for filename in manifest["files"]:
             filepath = self._embeddings_dir / filename
             if not filepath.exists():
-                print(f"[AdPredictor] Warning: Missing file {filename}, skipping cache")
                 self._reference_embeddings_cache.clear()
                 return
 
@@ -96,9 +85,6 @@ class AdPredictor:
             # Load numpy array
             embeddings_array = np.load(filepath)
             self._reference_embeddings_cache[cache_key] = embeddings_array
-
-        print(f"[AdPredictor] ✓ Loaded {len(self._reference_embeddings_cache)} reference embeddings from cache")
-        print(f"[AdPredictor] This saves ~30 API calls per request!")
 
     async def analyze_creative(
         self,
@@ -143,11 +129,9 @@ class AdPredictor:
         if mime_type is None:
             from src.utils.mime_detector import detect_mime_type_from_base64
             mime_type, media_category = detect_mime_type_from_base64(creative_base64)
-            print(f"[AdPredictor] Auto-detected MIME type: {mime_type} ({media_category})")
         else:
             from src.utils.mime_detector import validate_mime_type
             mime_type, media_category = validate_mime_type(mime_type)
-            print(f"[AdPredictor] Using provided MIME type: {mime_type} ({media_category})")
 
         # Step 0: Generate brand familiarity instructions per persona (if applicable)
         brand_familiarity_instructions = None
@@ -160,11 +144,9 @@ class AdPredictor:
             # Parse distribution (could be preset name or custom dict)
             if isinstance(brand_familiarity_distribution, str):
                 # It's a preset name
-                print(f"[AdPredictor] Using brand familiarity preset: {brand_familiarity_distribution}")
                 distribution = BrandFamiliarityDistribution.get_preset(brand_familiarity_distribution)
             else:
                 # It's a custom distribution - convert string keys to ints
-                print(f"[AdPredictor] Using custom brand familiarity distribution")
                 distribution = {int(k): v for k, v in brand_familiarity_distribution.items()}
 
             # Assign familiarity levels to each persona
@@ -177,13 +159,10 @@ class AdPredictor:
                 deterministic=(brand_familiarity_seed is None),
             )
 
-            print(f"[AdPredictor] Brand familiarity levels assigned: {familiarity_levels}")
-
             # Get unique levels that need to be generated
             unique_levels = sorted(set(familiarity_levels))
 
             # Generate ONLY the required familiarity level instructions in ONE LLM call
-            print(f"[AdPredictor] Generating brand familiarity contexts for levels {unique_levels} (1 LLM call)...")
             instructions_by_level = await generate_brand_familiarity_instructions(
                 brand_context=brand_context,
                 required_levels=unique_levels,
@@ -195,8 +174,6 @@ class AdPredictor:
                 instructions_by_level.get(level, "")
                 for level in familiarity_levels
             ]
-
-            print(f"[AdPredictor] ✓ Brand familiarity contexts generated and assigned")
 
         # Step 1: Get LLM evaluations (in parallel for speed)
         llm_responses = await self._get_llm_evaluations(
@@ -246,7 +223,6 @@ class AdPredictor:
         persona_agreement = self._calculate_persona_agreement(pmfs)
 
         # Step 4.5: Generate qualitative summary (single LLM call)
-        print(f"[AdPredictor] Generating qualitative summary...")
         qualitative_summary = await self.llm_client.generate_qualitative_summary(
             persona_feedbacks=llm_responses,
             average_score=avg_score,

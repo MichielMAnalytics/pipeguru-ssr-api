@@ -1,6 +1,7 @@
 """Google Gemini Vision client for evaluating ad images with personas."""
 
 import base64
+import logging
 import os
 from typing import Optional
 
@@ -8,6 +9,8 @@ from google import genai
 from google.genai import types
 
 from src.core.placement_context import get_placement_context
+
+logger = logging.getLogger(__name__)
 
 
 class LLMClient:
@@ -34,8 +37,6 @@ class LLMClient:
 
         # Initialize Gemini client
         self.client = genai.Client(api_key=self.api_key)
-
-        print(f"[LLM Client] Initialized with model: {self.model}")
 
     async def evaluate_ad_with_persona(
         self,
@@ -104,34 +105,6 @@ Consider:
 Respond naturally and authentically from your perspective. Share your honest thoughts
 about whether you'd be interested in this product and why or why not. Be specific about
 what appeals to you or turns you off."""
-
-        # Log the full prompt for debugging
-        debug_prompts = os.getenv("DEBUG_PROMPTS", "false").lower() == "true"
-
-        if brand_familiarity_instruction:
-            print(f"[LLM Client] ✓ Brand familiarity context included (length: {len(brand_familiarity_instruction)} chars)")
-
-            if debug_prompts:
-                print("\n" + "="*80)
-                print("FULL BRAND FAMILIARITY INSTRUCTION:")
-                print("="*80)
-                print(brand_familiarity_instruction)
-                print("="*80 + "\n")
-            else:
-                # Log first 300 chars of brand instruction to verify it's working
-                preview = brand_familiarity_instruction[:300].replace('\n', ' ')
-                print(f"[LLM Client]   Preview: {preview}...")
-        else:
-            print(f"[LLM Client] No brand familiarity context")
-
-        print(f"[LLM Client] User prompt length: {len(user_prompt)} chars")
-
-        if debug_prompts:
-            print("\n" + "="*80)
-            print("FULL USER PROMPT:")
-            print("="*80)
-            print(user_prompt)
-            print("="*80 + "\n")
 
         try:
             # Convert base64 to bytes for Gemini
@@ -275,8 +248,16 @@ Summary:"""
             summary = response_text.strip()
             if summary.lower().startswith("summary:"):
                 summary = summary[8:].strip()
+
+            # Validate that we got a real summary, not just stats
+            if len(summary) < 50:
+                logger.warning(f"Generated summary is too short ({len(summary)} chars): {summary}")
+                raise ValueError("Summary too short")
+
             return summary
         except Exception as e:
+            # Log the error so we can debug why summary generation is failing
+            logger.error(f"Failed to generate qualitative summary: {str(e)}", exc_info=True)
             # Fallback to a simple summary if LLM fails
             return f"Analysis based on {len(persona_feedbacks)} personas. Average score: {average_score:.1f}/5. Purchase intent: {purchase_intent:.1%}."
 

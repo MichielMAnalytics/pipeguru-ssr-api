@@ -481,6 +481,18 @@ class GeneratePersonasRequest(BaseModel):
         description="Number of personas to generate (1-1000)",
     )
 
+    audience_name: Optional[str] = Field(
+        None,
+        description="Optional audience name/label (e.g., 'Dutch gymbros', 'Tech-savvy millennials')",
+        max_length=200,
+    )
+
+    audience_description: Optional[str] = Field(
+        None,
+        description="Optional detailed description of the audience (e.g., 'guys from the netherlands going to the gym often')",
+        max_length=1000,
+    )
+
     characteristics: Optional[str] = Field(
         None,
         description="Optional characteristics/constraints (e.g., 'tech-savvy millennials' or '40+ year old professionals')",
@@ -514,6 +526,8 @@ class GeneratePersonasRequest(BaseModel):
         "json_schema_extra": {
             "example": {
                 "num_personas": 5,
+                "audience_name": "Dutch gymbros",
+                "audience_description": "guys from the netherlands going to the gym often",
                 "characteristics": "tech-savvy, early adopters, value convenience",
                 "age_range": "25-40",
                 "income_range": "$75k-120k",
@@ -597,9 +611,18 @@ async def generate_personas(
             batch_count = min(batch_size, request.num_personas - batch_start)
 
             # Build prompt for this batch
-            prompt = f"""Generate {batch_count} diverse customer personas for market research.
+            # Add audience context if provided
+            if request.audience_name or request.audience_description:
+                prompt_header = f"Generate {batch_count} diverse customer personas for the following audience:\n\n"
+                if request.audience_name:
+                    prompt_header += f"AUDIENCE: {request.audience_name}\n"
+                if request.audience_description:
+                    prompt_header += f"DESCRIPTION: {request.audience_description}\n"
+                prompt_header += "\n"
+            else:
+                prompt_header = f"Generate {batch_count} diverse customer personas for market research.\n\n"
 
-REQUIREMENTS:
+            prompt = prompt_header + f"""REQUIREMENTS:
 - Each persona should be 2-3 sentences
 - Format: "You are [Name], a [age]-year-old [occupation]..."
 - Include: age, occupation, income level, location, shopping behavior, values
